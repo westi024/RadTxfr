@@ -1,5 +1,7 @@
 """
-A radiative transfer module
+A radiative transfer module. Contains code for generating the Planckian
+distribution, brightness temperature, and various helper functions for
+manipulating n-dimensional arrays.
 
 ---------------------------------
 Kevin C. Gross (AFIT/ENP)
@@ -7,9 +9,11 @@ Air Force Institute of Technology
 Wright-Patterson AFB, Ohio
 Kevin.Gross@afit.edu
 (937) 255-3636 x4558
-05-Jun-2017  --  Version 0.1
+13-Feb-2018  --  Version 0.2
 ---------------------------------
 
+V 0.1 05-Jun-2017 Initial code.
+V 0.2 13-Feb-2018 Added comments.
 """
 
 import numpy as np
