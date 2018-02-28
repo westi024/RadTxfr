@@ -22,6 +22,8 @@ V 0.3.0 28-Feb-2018 Convert python numeric inputs to numpy arrays. Fixed
   comments to pass muster with the linter. Ensured 1D vectors are really 1D.
   Simplified array reshaping. Changed convention to spectral axis as the *first*
   dimension. Calculations now performed in SI units. Simplified units conversion.
+V 0.4.0 28-Feb-2018 Fixed regression for scalar temperature inputs. Added
+  make_array convenience function.
 
 TODO
 ____
@@ -63,7 +65,7 @@ def rs1D(y):
 
 def rs2D(y):
     """
-    Reshape ND-array into 2D-array by flattening 2nd thru Nth dimensions.
+    Convert ND-array to 2D by flattening 2nd thru Nth dimensions.
 
     Parameters
     __________
@@ -77,8 +79,13 @@ def rs2D(y):
 
     """
     y = np.array(y)
-    dims = y.shape
-    return y.reshape((dims[0], np.prod(dims[1:]))), dims
+    if y.ndim < 2:
+        y = np.array([y]).flatten()
+        y = y[np.newaxis,:] # per convention, return as row vector
+        return y, y.shape
+    else:
+        dims = y.shape
+        return y.reshape((dims[0], np.prod(dims[1:]))), dims
 
 
 def rsND(y, dims):
@@ -99,6 +106,23 @@ def rsND(y, dims):
 
     """
     return y.reshape(dims)
+
+
+def make_array(*args):
+    """Return NumPy array without singleton dimensions and ndim > 0."""
+    def do_work(x):
+        x = np.array(x).squeeze()
+        if x.ndim == 0:
+            x = np.array([x])
+        return x
+    # Handle single / multiple inputs separately -- simplifies output handling
+    if len(args) == 1:
+        return do_work(args)
+    else:
+        out=[]
+        for x in args:
+            out.append(do_work(x))
+        return tuple(out)
 
 
 def planckian(X, T, f=False):
@@ -136,19 +160,14 @@ def planckian(X, T, f=False):
     >>> plt.plot(X,L)
 
     """
-    # Ensure inputs are NumPy arrays with correct shapes
-    T = np.array(T)  # can be scalar, vector, ND-array
-    X = np.array(X).squeeze()  # X *must* be a 1D vector
-    if X.ndim > 1:
+    # Ensure inputs are NumPy arrays -- eliminate singleton dimensions
+    X, T = make_array(X,T)
+    if X.ndim > 1:  # X is not a vector
         raise TypeError('X must be a scalar or 1D array')
-    elif X.ndim == 0:
-        X = np.array([X])
 
-    # Ensure X is column vector for outer products
+    # Make X a column vector and T a row vector for broadcasting into 2D arrays
     X = X[:, np.newaxis]
-
-    # Ensure T is a row vector for outer products
-    T, dimsT = rs1D(T)
+    T, dimsT = rs1D(T)  # keep shape info for later reshaping into ND array
     T = T[np.newaxis, :]
 
     # Compute Planck's spectral radiance distribution
@@ -156,7 +175,7 @@ def planckian(X, T, f=False):
         if not f:
             print('Assumes X given in µm; returning L in µF')
         X *= 1e-6  # convert to m from µm
-        L = c1 / (X**5 * (np.exp(c2 / (X * T)) - 1))  # [W/(m^2 sr m)]
+        L = c1 / (X**5 * (np.exp(c2 / (X * T)) - 1))  # [W/(m^2 sr m)] SI
         L *= 1e-4  # convert to [µW/(cm^2 sr µm^{-1})]
     else:  # compute using wavenumbers
         X *= 100  # convert to 1/m from 1/cm
@@ -202,24 +221,27 @@ def brightnessTemperature(X, L, f=False):
     >>> plt.plot(X,T)
 
     """
-    # Ensure inputs are NumPy arrays with correct shapes
-    X = np.array(X).squeeze()  # X *must* be a 1D vector
-    if X.ndim > 1:
+    # Ensure inputs are NumPy arrays -- eliminate singleton dimensions
+    X, L = make_array(X,L)
+    if X.ndim > 1:  # X is not a vector
         raise TypeError('X must be a scalar or 1D array')
-    L = np.array(L)
 
     # Ensure X is row vector for outer products
     X = X[:, np.newaxis]
 
-    # Make L a column vector or 2D array w/ spectral axis as 1st dim
-    L, dimsL = rs2D(L)
+    # Make L a column vector or 2D array w/ spectral axis as 1st dimension
+    if L.ndim == 1:  # if it is a vector, must be same shape as X
+        L = L[:,np.newaxis]
+        dimsL = L.shape
+    else:  # otherwise collapse / reshape with 1st dimension corresponds to X
+        L, dimsL = rs2D(L)
 
     # Evaluate brightness temperature
     if f or np.mean(X) < 50:  # compute using wavelength (with hueristics)
         if not f:
             print('Assumes X given in µm and L given in µF')
         X *= 1e-6  # convert to m from µm
-        L *= 1e+4  # convert to [W/(m^2 sr m)] from [µW/(cm^2 sr µm)]
+        L *= 1e+4  # convert to SI units, [W/(m^2 sr m)] from [µW/(cm^2 sr µm)]
         T = c2 / (X * np.log(1 + c1 / (X**5 * L)))
     else:  # compute using wavenumbers
         X *= 100  # convert to 1/m from 1/cm
@@ -245,7 +267,6 @@ if __name__ == "__main__":
     mpl.rcParams['text.latex.preamble'] = r'\usepackage[adobe-utopia]{mathdesign}, \usepackage{siunitx}'
 
     # Define strings containing LaTeX formatted stuff for plots
-
     s_rad_wn = r'Spectral Radiance, $L(\tilde{\nu})$ $\left[ \si{ {\micro}W/(cm^2.sr.cm^{-1}) } \right]$'
     s_rad_wl = r'Spectral Radiance, $L(\lambda)$ $\left[ \si{ {\micro}W/(cm^2.sr.\um) } \right]$'
     s_Tb_wn = r'Brightness Temperature, $T_B(\tilde{\nu})$ $\left[\si{K}\right]$'
@@ -253,9 +274,9 @@ if __name__ == "__main__":
     s_wn = r'Wavenumbers, $\tilde{\nu}$ $\left[\si{cm^{-1}}\right]$'
     s_wl = r'Wavelength, $\lambda$ $\left[\si{{\micro}m}\right]$'
 
-    def s_leg_rad(T): return ["$T = {0}$ K".format(TT) for TT in T]
+    def s_leg_rad(T): return ["$T = {0}$ K".format(TT) for TT in np.array([T]).flatten()]
 
-    # Test at known temperatures and wavenumbers / wavelengths
+    # Test at known temperatures and wavenumbers / wavelengths -- print results
     T = 296
     wn = 500  # wavenumber
     wl = 10000 / wn  # equivalent wavelength
@@ -265,47 +286,56 @@ if __name__ == "__main__":
     L_wl = planckian(wl, T, f=True)
     s1 = "L(X = {0}/cm, T = {1}K) = {2:0.6e} W/(cm^2 sr 1/cm)\n".format(wn, T, float(L_wn))
     s2 = "L(X = {0}µm, T = {1}K) = {2:0.6e} µW/(cm^2 sr µm)\n".format(wl, T, float(L_wl))
-    sa = "L(X = {0}/cm, T = {1}K) * (ΔX = {2:0.2e}/cm) = {3:0.6e} W/(cm^2 sr)\n".format(wn, T, d_wn, float(L_wn * d_wn))
-    sb = "L(X = {0}µm, T = {1}K) * (ΔX = {2:0.2e}µm) = {3:0.6e} W/(cm^2 sr)\n".format(wl, T, d_wl, float(1e-6 * L_wl * d_wl))  # convert to W from µW
+    sa = "L(X = {0}/cm, T = {1}K) * (ΔX = {2:0.2e}/cm) = {3:0.6e} W/(cm^2 sr)\n".format(
+        wn, T, d_wn, float(L_wn * d_wn))
+    sb = "L(X = {0}µm, T = {1}K) * (ΔX = {2:0.2e}µm) = {3:0.6e} W/(cm^2 sr)\n".format(
+        wl, T, d_wl, float(1e-6 * L_wl * d_wl))  # convert to W from µW
     print(s1 + s2 + sa + sb)
 
-    # Compute radiance and brightness temperature
-    T = np.arange(250, 375, 25)
-    X1 = np.linspace(100, 2500, 500)
-    X2 = 10000 / X1
+    # plotting function
+    def plot_rad_Tb(X, L, Tb, T, xl=None, yl_L=None, yl_T=None):
+        def my_legend(T):
+            if T is not None:
+                return ["$T = {0}$ K".format(TT) for TT in np.array([T]).flatten()]
+            else:
+                return None
+        plt.figure(figsize=(7.5, 10.5), dpi=300)
+        plt.subplot(2, 1, 1)
+        plt.plot(X, L)
+        plt.xlabel(xl)
+        plt.ylabel(yl_L)
+        plt.legend(my_legend(T))
+        plt.title('Planckian Spectral Radiance Distribution')
+        plt.subplot(2, 1, 2)
+        plt.plot(X, Tb)
+        plt.title('Spectral Brightness Temperature Distribution')
+        try:
+            if len(T) > 3:
+                plt.yticks(T)
+        except:
+            None
+        plt.xlabel(xl)
+        plt.ylabel(yl_T)
+        plt.show()
+
+    # Common spectral axis for visualizations
+    X1 = np.linspace(100, 2500, 500) # [1/cm] wavenumbers
+    X2 = 10000 / X1  # [µm] wavelength
+
+    # Compute and visualize radiance and brightness temperature -- scalar T
+    T = 296
     L1 = planckian(X1, T)
     L2 = planckian(X2, T, f=True)
     Tb1 = brightnessTemperature(X1, L1)
     Tb2 = brightnessTemperature(X2, L2, f=True)
+    plot_rad_Tb(X1, L1*1e6, Tb1, T, xl=s_wn, yl_L=s_rad_wn, yl_T=s_Tb_wn)
+    plot_rad_Tb(X2, L2, Tb2, T, xl=s_wl, yl_L=s_rad_wl, yl_T=s_Tb_wl)
 
-    # Plot results for wavenumbers
-    plt.figure(figsize=(7.5, 10.5), dpi=300)
-    plt.subplot(2, 1, 1)
-    plt.plot(X1, L1 * 1e6)
-    plt.xlabel(s_wn)
-    plt.ylabel(s_rad_wn)
-    plt.legend(s_leg_rad(T))
-    plt.title('Planckian Spectral Radiance Distribution in Wavenumbers')
-    plt.subplot(2, 1, 2)
-    plt.plot(X1, Tb1)
-    plt.title('Spectral Brightness Temperature Distribution in Wavelength')
-    plt.yticks(T)
-    plt.xlabel(s_wn)
-    plt.ylabel(s_Tb_wn)
-    plt.show()
-
-    # Plot results for wavelengths
-    plt.figure(figsize=(7.5, 10.5), dpi=300)
-    plt.subplot(2, 1, 1)
-    plt.plot(X2, L2)
-    plt.xlabel(s_wl)
-    plt.ylabel(s_rad_wl)
-    plt.legend(s_leg_rad(T))
-    plt.title('Planckian Spectral Radiance Distribution in Wavelength')
-    plt.subplot(2, 1, 2)
-    plt.plot(X2, Tb2)
-    plt.title('Spectral Brightness Temperature Distribution in Wavelength')
-    plt.yticks(T)
-    plt.xlabel(s_wl)
-    plt.ylabel(s_Tb_wl)
-    plt.show()
+    # Compute and visualize radiance and brightness temperature -- vector T
+    T = np.arange(250, 375, 25)
+    L1 = planckian(X1, T)
+    L2 = planckian(X2, T, f=True)
+    Tb1 = brightnessTemperature(X1, L1)
+    Tb2 = brightnessTemperature(X2, L2, f=True)
+    plot_rad_Tb(X1, L1*1e6, Tb1, T, xl=s_wn, yl_L=s_rad_wn, yl_T=s_Tb_wn)
+    plot_rad_Tb(X2, L2, Tb2, T, xl=s_wl, yl_L=s_rad_wl, yl_T=s_Tb_wl)
