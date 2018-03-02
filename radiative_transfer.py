@@ -296,7 +296,7 @@ if __name__ == "__main__":
     def plot_rad_Tb(X, L, Tb, T, xl=None, yl_L=None, yl_T=None):
         def my_legend(T):
             if T is not None:
-                return ["$T = {0}$ K".format(TT) for TT in np.array([T]).flatten()]
+                return ["$T = {0}$ K".format(TT) for TT in np.array(T).flatten()]
             else:
                 return None
         plt.figure(figsize=(7.5, 10.5), dpi=300)
