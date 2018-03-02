@@ -12,7 +12,7 @@ Wright-Patterson AFB, Ohio
 Kevin.Gross@afit.edu
 grosskc.afit@gmail.com
 (937) 255-3636 x4558
-Version 0.3.0 -- 28-Feb-2018
+Version 0.4.1 -- 02-Mar-2018
 
 Version History
 ---------------
@@ -24,6 +24,8 @@ V 0.3.0 28-Feb-2018 Convert python numeric inputs to numpy arrays. Fixed
   dimension. Calculations now performed in SI units. Simplified units conversion.
 V 0.4.0 28-Feb-2018 Fixed regression for scalar temperature inputs. Added
   make_array convenience function.
+V 0.4.1 02-Mar-2018 Updated comments. Removed brackets around T when ensuring T
+  a NumPy array. Made plotting function "private".
 
 TODO
 ____
@@ -31,6 +33,7 @@ ____
 * Add absorption cross-section database handling
 * Add LBLRTM hooks
 * Improve testing
+
 """
 
 import numpy as np
@@ -81,7 +84,7 @@ def rs2D(y):
     y = np.array(y)
     if y.ndim < 2:
         y = np.array([y]).flatten()
-        y = y[np.newaxis,:] # per convention, return as row vector
+        y = y[np.newaxis, :]  # per convention, return as row vector
         return y, y.shape
     else:
         dims = y.shape
@@ -119,7 +122,7 @@ def make_array(*args):
     if len(args) == 1:
         return do_work(args)
     else:
-        out=[]
+        out = []
         for x in args:
             out.append(do_work(x))
         return tuple(out)
@@ -161,7 +164,7 @@ def planckian(X, T, f=False):
 
     """
     # Ensure inputs are NumPy arrays -- eliminate singleton dimensions
-    X, T = make_array(X,T)
+    X, T = make_array(X, T)
     if X.ndim > 1:  # X is not a vector
         raise TypeError('X must be a scalar or 1D array')
 
@@ -222,7 +225,7 @@ def brightnessTemperature(X, L, f=False):
 
     """
     # Ensure inputs are NumPy arrays -- eliminate singleton dimensions
-    X, L = make_array(X,L)
+    X, L = make_array(X, L)
     if X.ndim > 1:  # X is not a vector
         raise TypeError('X must be a scalar or 1D array')
 
@@ -231,7 +234,7 @@ def brightnessTemperature(X, L, f=False):
 
     # Make L a column vector or 2D array w/ spectral axis as 1st dimension
     if L.ndim == 1:  # if it is a vector, must be same shape as X
-        L = L[:,np.newaxis]
+        L = L[:, np.newaxis]
         dimsL = L.shape
     else:  # otherwise collapse / reshape with 1st dimension corresponds to X
         L, dimsL = rs2D(L)
@@ -274,8 +277,6 @@ if __name__ == "__main__":
     s_wn = r'Wavenumbers, $\tilde{\nu}$ $\left[\si{cm^{-1}}\right]$'
     s_wl = r'Wavelength, $\lambda$ $\left[\si{{\micro}m}\right]$'
 
-    def s_leg_rad(T): return ["$T = {0}$ K".format(TT) for TT in np.array([T]).flatten()]
-
     # Test at known temperatures and wavenumbers / wavelengths -- print results
     T = 296
     wn = 500  # wavenumber
@@ -292,8 +293,9 @@ if __name__ == "__main__":
         wl, T, d_wl, float(1e-6 * L_wl * d_wl))  # convert to W from µW
     print(s1 + s2 + sa + sb)
 
-    # plotting function
-    def plot_rad_Tb(X, L, Tb, T, xl=None, yl_L=None, yl_T=None):
+    # plotting function (private)
+    def _plot_rad_Tb(X, L, Tb, T, xl=None, yl_L=None, yl_T=None):
+        """Plot Planckian and brightness temp distribution for V&V."""
         def my_legend(T):
             if T is not None:
                 return ["$T = {0}$ K".format(TT) for TT in np.array(T).flatten()]
@@ -319,7 +321,7 @@ if __name__ == "__main__":
         plt.show()
 
     # Common spectral axis for visualizations
-    X1 = np.linspace(100, 2500, 500) # [1/cm] wavenumbers
+    X1 = np.linspace(100, 2500, 500)  # [1/cm] wavenumbers
     X2 = 10000 / X1  # [µm] wavelength
 
     # Compute and visualize radiance and brightness temperature -- scalar T
@@ -328,8 +330,8 @@ if __name__ == "__main__":
     L2 = planckian(X2, T, f=True)
     Tb1 = brightnessTemperature(X1, L1)
     Tb2 = brightnessTemperature(X2, L2, f=True)
-    plot_rad_Tb(X1, L1*1e6, Tb1, T, xl=s_wn, yl_L=s_rad_wn, yl_T=s_Tb_wn)
-    plot_rad_Tb(X2, L2, Tb2, T, xl=s_wl, yl_L=s_rad_wl, yl_T=s_Tb_wl)
+    _plot_rad_Tb(X1, L1 * 1e6, Tb1, T, xl=s_wn, yl_L=s_rad_wn, yl_T=s_Tb_wn)
+    _plot_rad_Tb(X2, L2, Tb2, T, xl=s_wl, yl_L=s_rad_wl, yl_T=s_Tb_wl)
 
     # Compute and visualize radiance and brightness temperature -- vector T
     T = np.arange(250, 375, 25)
@@ -337,5 +339,5 @@ if __name__ == "__main__":
     L2 = planckian(X2, T, f=True)
     Tb1 = brightnessTemperature(X1, L1)
     Tb2 = brightnessTemperature(X2, L2, f=True)
-    plot_rad_Tb(X1, L1*1e6, Tb1, T, xl=s_wn, yl_L=s_rad_wn, yl_T=s_Tb_wn)
-    plot_rad_Tb(X2, L2, Tb2, T, xl=s_wl, yl_L=s_rad_wl, yl_T=s_Tb_wl)
+    _plot_rad_Tb(X1, L1 * 1e6, Tb1, T, xl=s_wn, yl_L=s_rad_wn, yl_T=s_Tb_wn)
+    _plot_rad_Tb(X2, L2, Tb2, T, xl=s_wl, yl_L=s_rad_wl, yl_T=s_Tb_wl)
