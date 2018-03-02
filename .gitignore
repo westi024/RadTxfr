@@ -107,3 +107,6 @@ venv.bak/
 # Visual Studio Code cruft
 .vscode/
 .ropenproject/
+
+# Mac-specific cruft
+.DS_Store
