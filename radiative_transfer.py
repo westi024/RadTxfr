@@ -42,7 +42,7 @@ import numpy as np
 
 # Module constants
 # h  = 6.6260689633e-34 # [J s]       - Planck's constant
-# c  = 299792458        # [cm/s]      - speed of light
+# c  = 299792458        # [m/s]       - speed of light
 # k  = 1.380650424e-23  # [J/K]       - Boltzman constant
 c1 = 1.19104295315e-16  # [J m^2 / s] - 1st radiation constant, c1 = 2*h*c^2
 c2 = 1.43877736830e-02  # [m K]       - 2nd radiation constant, c2 = h * c / k
