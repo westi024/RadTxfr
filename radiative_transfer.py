@@ -12,7 +12,7 @@ Wright-Patterson AFB, Ohio
 Kevin.Gross@afit.edu
 grosskc.afit@gmail.com
 (937) 255-3636 x4558
-Version 0.4.1 -- 02-Mar-2018
+Version 0.4.2 -- 19-Mar-2018
 
 Version History
 ---------------
@@ -26,6 +26,7 @@ V 0.4.0 28-Feb-2018 Fixed regression for scalar temperature inputs. Added
   make_array convenience function.
 V 0.4.1 02-Mar-2018 Updated comments. Removed brackets around T when ensuring T
   a NumPy array. Made plotting function "private".
+V 0.4.2 19-Mar-2018 Minor updates to comments and print-out formatting.
 
 TODO
 ____
@@ -33,6 +34,7 @@ ____
 * Add absorption cross-section database handling
 * Add LBLRTM hooks
 * Improve testing
+* Make a package with subfolders
 
 """
 
@@ -144,13 +146,13 @@ def planckian(X, T, f=False):
     T : numpy array
       temperature imput in Kelvin [K]
     f : logical
-      if true, spectral input X is given in wavelength [micron]
+      if true, spectral input X is given in wavelength [micron, µm]
 
     Returns
     -------
     L : numpy array
-      spectral radiance in [W / (cm^2 sr cm^-1)], or if f=True, spectral
-      radiance in [micro W / (cm^2 sr micron)] (microflick)
+      spectral radiance in [W/(cm^2·sr·cm^-1)], or if f=True, spectral
+      radiance in [µW/(cm^2·sr·µm)] (microflick, µF)
 
     Example
     _______
@@ -199,13 +201,13 @@ def brightnessTemperature(X, L, f=False):
 
     Parameters
     ----------
-    X : numpy array (must be a vector)
+    X: numpy array (must be a vector)
       spectral input in wavenumbers [cm^{-1}]
-    L : numpy array
-      spectral radiance in [W/(cm^2 sr cm^-1)]
-    f : logical
+    L: numpy array
+      spectral radiance in [W/(cm^2·sr·cm^-1)]
+    f: logical
       if true, spectral input X is given in wavelength [µm] and L is given
-      in [µW / (cm^2 sr µm)] (microflick, µF)
+      in [µW/(cm^2·sr·µm)] (microflick, µF)
 
     Returns
     -------
@@ -285,8 +287,8 @@ if __name__ == "__main__":
     d_wl = (d_wn / wn) * wl  # equivalent differential wavelength
     L_wn = planckian(wn, T)
     L_wl = planckian(wl, T, f=True)
-    s1 = "L(X = {0}/cm, T = {1}K) = {2:0.6e} W/(cm^2 sr 1/cm)\n".format(wn, T, float(L_wn))
-    s2 = "L(X = {0}µm, T = {1}K) = {2:0.6e} µW/(cm^2 sr µm)\n".format(wl, T, float(L_wl))
+    s1 = "L(X = {0}/cm, T = {1}K) = {2:0.6e} W/(cm^2·sr·cm^{{-1}})\n".format(wn, T, float(L_wn))
+    s2 = "L(X = {0}µm, T = {1}K) = {2:0.6e} µW/(cm^2·sr·µm)\n".format(wl, T, float(L_wl))
     sa = "L(X = {0}/cm, T = {1}K) * (ΔX = {2:0.2e}/cm) = {3:0.6e} W/(cm^2 sr)\n".format(
         wn, T, d_wn, float(L_wn * d_wn))
     sb = "L(X = {0}µm, T = {1}K) * (ΔX = {2:0.2e}µm) = {3:0.6e} W/(cm^2 sr)\n".format(
@@ -301,7 +303,7 @@ if __name__ == "__main__":
                 return ["$T = {0}$ K".format(TT) for TT in np.array(T).flatten()]
             else:
                 return None
-        plt.figure(figsize=(7.5, 10.5), dpi=300)
+        plt.figure(figsize=(7.5, 10.5))
         plt.subplot(2, 1, 1)
         plt.plot(X, L)
         plt.xlabel(xl)
