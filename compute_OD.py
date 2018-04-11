@@ -1,13 +1,14 @@
 import os, os.path
 import inspect
-import pathlib
 import subprocess
 import tempfile
 
 import numpy as np
 
 LBL_dir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
-opts = {
+LBLRTM = os.path.join(LBL_dir, 'lblrtm_v12.8_OS_X_gnu_sgl')
+TAPE3 = os.path.join(LBL_dir, 'AER-v3.6-0500-6000.tp3')
+options = {
     # options for write_tape5
     'V1': 2000.00,
     'V2': 3333.33,
@@ -24,17 +25,52 @@ opts = {
     # options for run_LBLRTM
     'debug': True,
     'LBL_dir': LBL_dir,
-    'LBLRTM': None,
-    'TAPE3': None,
+    'LBLRTM': LBLRTM,
+    'TAPE3': TAPE3,
     }
+print(options)
 
-if opts["LBLRTM"] is None:
-    opts["LBLRTM"] = os.path.join(LBL_dir, 'lblrtm_v12.8_OS_X_gnu_sgl')
-if opts["TAPE3"] is None:
-    opts["TAPE3"] = os.path.join(LBL_dir, 'AER-v3.6-0500-6000.tp3')
-print(opts)
+def compute_OD(Xmin_in, Xmax_in, opts=options, ** kwargs):
+    opts.update(kwargs)
+    DVOUT = opts.get("DVOUT",0.025)
 
-def run_LBLRTM(V1, V2, opts=opts, **kwargs):
+    # Set up parameters for looping over spectral range in 2020/cm chunks
+    myround = lambda x: float("{0:10.3f}".format(x))
+    pad = 100
+    olp = 5
+    Xmin = np.max([myround(Xmin_in - pad), 0])
+    Xmax = myround(Xmax_in + pad)
+    maxBW = 2020 - olp
+    nBand = int(np.ceil((Xmax - Xmin) / maxBW))
+    nPts = int(np.floor(maxBW / DVOUT))
+
+    # Compute OD for each spectral chunck    
+    X = []
+    OD = []
+    for ii in range(nBand):
+        if ii > 0:
+            Xmin = myround(np.max(X[ii - 1]) + DVOUT - olp)
+        Xmax1 = np.min([Xmax+pad, myround(Xmin + DVOUT * (nPts - 1) + olp)])
+        nu, od = run_LBLRTM(Xmin, Xmax1, opts=opts)
+        X.append(nu)
+        OD.append(od)
+    
+    # Stitch chunks together into single output vector
+    N = np.ceil((Xmax_in - Xmin_in) / DVOUT)
+    X_out = np.linspace(Xmin_in, Xmax_in, N)
+    OD_out = np.zeros((nBand, X_out.size))
+    for ii in range(nBand):
+        OD_out[ii, :] = np.interp(X_out, X[ii], OD[ii], left=0, right=0)
+    OD_out = np.sum(OD_out, axis=0) / np.sum(OD_out > 0, axis=0)
+    OD_out = OD_out.flatten()
+    return X_out, OD_out
+
+
+
+
+
+
+def run_LBLRTM(V1, V2, opts=options, **kwargs):
     
     opts.update(kwargs)
     opts["V1"] = V1
@@ -51,13 +87,13 @@ def run_LBLRTM(V1, V2, opts=opts, **kwargs):
         write_tape5(fname="TAPE5", **opts)
         ex = subprocess.run('./lblrtm', stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if ex.stderr == b'STOP  LBLRTM EXIT \n':
-            nu, OD = read_tape12()
+            nu, od = read_tape12()
         os.chdir(cwd)
-    return nu, OD
+    return nu, od
 
 
 
-def write_tape5(fname="TAPE5", opts=opts, **kwargs):
+def write_tape5(fname="TAPE5", opts=options, **kwargs):
 
     opts.update(kwargs)
     # Extract critical values with reasonable defaults
@@ -196,7 +232,7 @@ def read_tape12(fname="TAPE12"):
     v1, v2 = np.array([], dtype=np.dtype('float64')), np.array([], dtype=np.dtype('float64'))
     dv = np.array([], dtype=np.dtype('float32'))
     N = np.array([], np.dtype('i4'))
-    OD = np.array([], np.dtype('float32'))
+    od = np.array([], np.dtype('float32'))
 
     with open(fname, 'rb') as fid:
         _ = np.fromfile(fid, np.dtype('i4'), count=266)
@@ -212,7 +248,7 @@ def read_tape12(fname="TAPE12"):
             if L1 != N[-1] * 4:
                 print(f"Internal inconsistency in file {fname}")
                 break
-            OD = np.append(OD, np.fromfile(fid, np.dtype('float32'), count=N[-1]))
+            od = np.append(od, np.fromfile(fid, np.dtype('float32'), count=N[-1]))
             L2 = np.fromfile(fid, np.dtype('i4'), count=1)
             if L1 != L2:
                 print(f"Internal inconsistency in file {fname}")
@@ -225,6 +261,6 @@ def read_tape12(fname="TAPE12"):
     for V1, V2, n in zip(v1, v2, N):
         nu = np.append(nu, np.linspace(V1, V2, n))
 
-    return nu, OD
+    return nu, od
 
 
