@@ -1,30 +1,98 @@
-import os.path
+import os, os.path
+import inspect
+import pathlib
+import subprocess
+import tempfile
 
 import numpy as np
 
-def write_tape5(fname="TAPE5", V1=2000, V2=3333, P=101325, T=296, PL=1,
-                mixing_fraction=np.zeros(38), **kwargs):
+LBL_dir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+opts = {
+    # options for write_tape5
+    'V1': 2000.00,
+    'V2': 3333.33,
+    'T': 296.0,
+    'P': 101325.0,
+    'PL': 1.0,
+    'mixing_fraction': np.zeros(38),
+    'mf_ID': np.array([]),
+    'mf_val': np.array([]),
+    'continuum_factors': np.zeros(7),
+    'continuum_override': False,
+    'description': 'TAPE5 for single layer calculation by compute_OD.py',
+    'DVOUT': 0.0025,
+    # options for run_LBLRTM
+    'debug': True,
+    'LBL_dir': LBL_dir,
+    'LBLRTM': None,
+    'TAPE3': None,
+    }
 
-    # Default options dictionary
-    opts = {
-        'description': 'TAPE5 for single layer calculation by compute_OD.py',
-        'continuum_factors': [1, 1, 1, 1, 1, 1, 1],
-        'DVOUT': 0.0025,
-        'debug': True,
-        'mf_idx': np.zeros(mixing_fraction.shape),
-        'mf_val': np.zeros(mixing_fraction.shape),
-        }
+if opts["LBLRTM"] is None:
+    opts["LBLRTM"] = os.path.join(LBL_dir, 'lblrtm_v12.8_OS_X_gnu_sgl')
+if opts["TAPE3"] is None:
+    opts["TAPE3"] = os.path.join(LBL_dir, 'AER-v3.6-0500-6000.tp3')
+print(opts)
 
-    opts.update(kwargs) # update options dictionary with user-supplied kwargs
-    C = mixing_fraction
-    C[opts['mf_idx']] = opts['mf_val']
-    print(*C)
+def run_LBLRTM(V1, V2, opts=opts, **kwargs):
+    
+    opts.update(kwargs)
+    opts["V1"] = V1
+    opts["V2"] = V2
+    cwd = os.getcwd()
+    LBLRTM = opts.get('LBLRTM')
+    TAPE3 = opts.get('TAPE3')
+    with tempfile.TemporaryDirectory() as tempdir:
+        print(tempdir)
+        os.chdir(tempdir)
+        print(LBLRTM, TAPE3)
+        os.symlink(TAPE3, 'TAPE3')
+        os.symlink(LBLRTM, 'lblrtm')
+        write_tape5(fname="TAPE5", **opts)
+        ex = subprocess.run('./lblrtm', stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if ex.stderr == b'STOP  LBLRTM EXIT \n':
+            nu, OD = read_tape12()
+        os.chdir(cwd)
+    return nu, OD
+
+
+
+def write_tape5(fname="TAPE5", opts=opts, **kwargs):
+
+    opts.update(kwargs)
+    # Extract critical values with reasonable defaults
+    V1 = opts.get("V1", 2000.00)  # [cm^{-1}]
+    V2 = opts.get("V2", 3333.33)  # [cm^{-1}]
+    T = opts.get("T", 296.0)      # [K]
+    P = opts.get("P", 101325.0)   # [Pa]
+    PL = opts.get("PL", 1.0) # [km]
+    CF = opts.get("continuum_factors", np.zeros(7))
+    DVOUT = opts.get("DVOUT",0.0025) # [cm^{-1}]
+
+    # Update mixing fraction
+    C = opts.get("mixing_fraction", np.zeros(38))
+    if "mf_ID" in opts.keys() and "mf_val" in opts.keys():
+        idx = [i-1 for i in list(opts['mf_ID'])]
+        C[idx] = opts['mf_val']
+    
+    # Update continuum
+    if not opts.get("continuum_override",False):
+        if C[0] > 0:
+            CF[[0,1]] = 1
+        if C[1] > 0:
+            CF[2] = 1
+        if C[2] > 0:
+            CF[3] = 1
+        if C[6] > 0:
+            CF[4] = 1
+        if C[21] > 0:
+            CF[5:6] = 1 # Assume we're doing an atmospheric calc, not a single molecule calc
 
     # This will hold each individual record in the "punch card"
     CARD = []
 
     # RECORD 1.1 — Title
-    RECORD = opts["description"]
+    RECORD = opts.get("description",'TAPE5 for single layer calculation by compute_OD.py')
     CARD.append(RECORD)
     CARD.append('         1         2         3         4         5         6         7         8         9         0')
     CARD.append('123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789')
@@ -54,8 +122,7 @@ def write_tape5(fname="TAPE5", V1=2000, V2=3333, P=101325, T=296, PL=1,
     CARD.append(RECORD)
 
     # RECORD 1.2a — continuum scale factors
-    CF = opts["continuum_factors"]
-    RECORD = (len(CF) * "{:8.6f} ".format(*CF)).rstrip()
+    RECORD = ((len(CF) * "{:8.6f} ").format(*CF)).rstrip()
     CARD.append(RECORD)
 
     # RECORD 1.3 — spectral range and related details
@@ -66,7 +133,6 @@ def write_tape5(fname="TAPE5", V1=2000, V2=3333, P=101325, T=296, PL=1,
     DPTMIN = 0    # minimum molecular optical depth below which lines will be rejected (0, no rejection)
     DPTFAC = 0    # factor for continuum optical depth for rejecting lines (0, no rejection)
     ILNFLG = 0    # flag for binary record of line rejection information (default)
-    DVOUT  = opts["DVOUT"] # [cm^{-1}] selected DV grid for the OD "monochromatic" output spacing
     NMOL_SCAL = 0 # number of molecular profiles to scale (default)
     RECORD = 8 * "{:10.3f}" + "    {:1d}     {:10.3E}   {:2d}"
     RECORD = RECORD.format(V1, V2, SAMPLE, DVSET, ALFAL0, AVMASS, DPTMIN, DPTFAC,
@@ -79,7 +145,7 @@ def write_tape5(fname="TAPE5", V1=2000, V2=3333, P=101325, T=296, PL=1,
     IBMAX  = 0  # Number of layer boundaries (default)
     ZERO   = 0  # Do not zero out absorbers contributing less than 0.1%
     NOPRNT = 0  # Full print out
-    NMOL   = mixing_fraction.size # Number of molecules in the HITRAN database
+    NMOL   = C.size # Number of molecules in the HITRAN database
     RECORD = (5 * "{:5d}").format(MODEL, ITYPE, IBMAX, ZERO, NOPRNT, NMOL)
     CARD.append(RECORD)
 
@@ -131,7 +197,7 @@ def read_tape12(fname="TAPE12"):
     dv = np.array([], dtype=np.dtype('float32'))
     N = np.array([], np.dtype('i4'))
     OD = np.array([], np.dtype('float32'))
-    
+
     with open(fname, 'rb') as fid:
         _ = np.fromfile(fid, np.dtype('i4'), count=266)
         nBytes = os.path.getsize(fname)
@@ -154,11 +220,11 @@ def read_tape12(fname="TAPE12"):
             f_loc = fid.tell()
             if f_loc == nBytes:
                 break
-    
+
     nu = np.array([], np.dtype('float64'))
     for V1, V2, n in zip(v1, v2, N):
         nu = np.append(nu, np.linspace(V1, V2, n))
-    
+
     return nu, OD
-    
+
 

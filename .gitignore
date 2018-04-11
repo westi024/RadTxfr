@@ -6,6 +6,12 @@ __pycache__/
 # C extensions
 *.so
 
+.vscode/
+
+*.tp3
+lblrtm_v*
+TAPE*
+
 # Distribution / packaging
 .Python
 build/
