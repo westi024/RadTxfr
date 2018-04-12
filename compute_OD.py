@@ -11,18 +11,18 @@ LBLRTM = os.path.join(LBL_dir, 'lblrtm_v12.8_OS_X_gnu_sgl')
 TAPE3 = os.path.join(LBL_dir, 'AER-v3.6-0500-6000.tp3')
 options = {
     # options for write_tape5
-    'V1': 2000.00,
-    'V2': 3333.33,
-    'T': 296.0,
-    'P': 101325.0,
-    'PL': 1.0,
-    'mixing_fraction': np.zeros(38),
+    'V1': 2000.00, # [cm^{-1}]
+    'V2': 3333.33, # [cm^{-1}]
+    'T': 296.0, # [K]
+    'P': 101325.0, # [Pa]
+    'PL': 1.0, # [km]
+    'mixing_fraction': np.zeros(38), # [ppmv]
     'mf_ID': np.array([]),
     'mf_val': np.array([]),
     'continuum_factors': np.zeros(7),
     'continuum_override': False,
     'description': 'TAPE5 for single layer calculation by compute_OD.py',
-    'DVOUT': 0.0025,
+    'DVOUT': 0.0025, # [cm^{-1}]
     # options for run_LBLRTM
     'debug': True,
     'LBL_dir': LBL_dir,
@@ -38,11 +38,11 @@ def compute_OD(Xmin_in, Xmax_in, opts=options, ** kwargs):
 
     # Set up parameters for looping over spectral range in 2020/cm chunks
     myround = lambda x: float("{0:10.3f}".format(x))
-    pad = 100
-    olp = 5
-    Xmin = np.max([myround(Xmin_in - pad), 0])
-    Xmax = myround(Xmax_in + pad)
-    maxBW = 2020 - olp
+    pad = 25 # padding around each spectral bin that is trimmed from every run
+    olp = 5 # overlap between spectral bins for averaging OD
+    Xmin = np.max([myround(Xmin_in - pad - olp), 0])
+    Xmax = myround(Xmax_in + pad + olp)
+    maxBW = 2020 - olp - 2 * pad
     nBand = int(np.ceil((Xmax - Xmin) / maxBW))
     nPts = int(np.floor(maxBW / DVOUT))
 
@@ -51,11 +51,12 @@ def compute_OD(Xmin_in, Xmax_in, opts=options, ** kwargs):
     OD = []
     for ii in range(nBand):
         if ii > 0:
-            Xmin = myround(np.max(X[ii - 1]) + DVOUT - olp)
-        Xmax1 = np.min([Xmax+pad, myround(Xmin + DVOUT * (nPts - 1) + olp)])
+            Xmin = myround(np.max(X[ii - 1]) - olp - pad)
+        Xmax1 = np.min([Xmax+pad, myround(Xmin + DVOUT * (nPts - 1) + olp + pad)])
         nu, od = run_LBLRTM(Xmin, Xmax1, opts=opts)
-        X.append(nu)
-        OD.append(od)
+        XX = np.linspace(Xmin+pad,Xmax1-pad,np.ceil((Xmax1-Xmin-2*pad)/DVOUT))
+        X.append(XX)
+        OD.append(np.interp(XX,nu,od))
     
     # Stitch chunks together into single output vector
     N = np.ceil((Xmax_in - Xmin_in) / DVOUT)
