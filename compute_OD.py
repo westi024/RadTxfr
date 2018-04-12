@@ -5,6 +5,7 @@ import tempfile
 
 import numpy as np
 
+# Define default options
 LBL_dir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 LBLRTM = os.path.join(LBL_dir, 'lblrtm_v12.8_OS_X_gnu_sgl')
 TAPE3 = os.path.join(LBL_dir, 'AER-v3.6-0500-6000.tp3')
@@ -29,6 +30,7 @@ options = {
     'TAPE3': TAPE3,
     }
 print(options)
+
 
 def compute_OD(Xmin_in, Xmax_in, opts=options, ** kwargs):
     opts.update(kwargs)
@@ -66,24 +68,16 @@ def compute_OD(Xmin_in, Xmax_in, opts=options, ** kwargs):
     return X_out, OD_out
 
 
-
-
-
-
 def run_LBLRTM(V1, V2, opts=options, **kwargs):
     
     opts.update(kwargs)
     opts["V1"] = V1
     opts["V2"] = V2
     cwd = os.getcwd()
-    LBLRTM = opts.get('LBLRTM')
-    TAPE3 = opts.get('TAPE3')
     with tempfile.TemporaryDirectory() as tempdir:
-        print(tempdir)
         os.chdir(tempdir)
-        print(LBLRTM, TAPE3)
-        os.symlink(TAPE3, 'TAPE3')
-        os.symlink(LBLRTM, 'lblrtm')
+        os.symlink(opts.get('TAPE3'), 'TAPE3')
+        os.symlink(opts.get('LBLRTM'), 'lblrtm')
         write_tape5(fname="TAPE5", **opts)
         ex = subprocess.run('./lblrtm', stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if ex.stderr == b'STOP  LBLRTM EXIT \n':
@@ -92,27 +86,42 @@ def run_LBLRTM(V1, V2, opts=options, **kwargs):
     return nu, od
 
 
-
 def write_tape5(fname="TAPE5", opts=options, **kwargs):
 
-    opts.update(kwargs)
     # Extract critical values with reasonable defaults
-    V1 = opts.get("V1", 2000.00)  # [cm^{-1}]
-    V2 = opts.get("V2", 3333.33)  # [cm^{-1}]
-    T = opts.get("T", 296.0)      # [K]
-    P = opts.get("P", 101325.0)   # [Pa]
-    PL = opts.get("PL", 1.0) # [km]
+    opts.update(kwargs) # update opts dictionary with user-supplied keys/vals
+    V1 = opts.get("V1", 2000.00)      # [cm^{-1}]
+    V2 = opts.get("V2", 3333.33)      # [cm^{-1}]
+    DVOUT = opts.get("DVOUT", 0.0025) # [cm^{-1}]
+    T = opts.get("T", 296.0)          # [K]
+    P = opts.get("P", 101325.0)       # [Pa]
+    PL = opts.get("PL", 1.0)          # [km]
     CF = opts.get("continuum_factors", np.zeros(7))
-    DVOUT = opts.get("DVOUT",0.0025) # [cm^{-1}]
 
     # Update mixing fraction
     C = opts.get("mixing_fraction", np.zeros(38))
     if "mf_ID" in opts.keys() and "mf_val" in opts.keys():
         idx = [i-1 for i in list(opts['mf_ID'])]
         C[idx] = opts['mf_val']
-    
-    # Update continuum
-    if not opts.get("continuum_override",False):
+
+    # Update mixing fraction via molecule name specification
+    hitranMolecules = ['H2O', 'CO2', 'O3', 'N2O', 'CO', 'CH4', 'O2', 'NO', 'SO2', 'NO2', 'NH3',
+                       'HNO3', 'OH', 'HF', 'HCl', 'HBr', 'HI', 'ClO', 'OCS', 'H2CO', 'HOCl', 'N2', 'HCN',
+                       'CH3Cl', 'H2O2', 'C2H2', 'C2H6', 'PH3', 'COF2', 'SF6', 'H2S', 'HCOOH', 'HO2',
+                       'O+', 'ClONO2', 'NO+', 'HOBr', 'C2H4']
+    mol_ix, mol_key = [], []
+    for k in opts.keys():
+        # index in hitranMolecule list that matches the molecule specified in opts
+        loc = [i for i, j in enumerate(hitranMolecules) if j.upper() == k.upper()]
+        if loc: # if loc is not empty
+            mol_ix.append(loc) # add the molecule index
+            mol_key.append(k)  # store the name so we can retrieve it later
+    mol_ix = np.asarray(mol_ix).flatten()
+    for i, k in enumerate(mol_key):
+        C[mol_ix[i]] = opts[k]
+
+    # Ensure only present species have continuum effects included
+    if not opts.get("continuum_override", False):
         if C[0] > 0:
             CF[[0,1]] = 1
         if C[1] > 0:
@@ -122,7 +131,7 @@ def write_tape5(fname="TAPE5", opts=options, **kwargs):
         if C[6] > 0:
             CF[4] = 1
         if C[21] > 0:
-            CF[5:6] = 1 # Assume we're doing an atmospheric calc, not a single molecule calc
+            CF[5] = 1
 
     # This will hold each individual record in the "punch card"
     CARD = []
@@ -262,5 +271,3 @@ def read_tape12(fname="TAPE12"):
         nu = np.append(nu, np.linspace(V1, V2, n))
 
     return nu, od
-
-
