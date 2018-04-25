@@ -1,8 +1,8 @@
 """
 AFIT/CTISR radiative transfer module.
 
-Code for generating the Planckian distribution and brightness temperature. Also
-includes various helper functions for manipulating ND-arrays.
+Code for generating the Planckian distribution, brightness temperature, and
+radiative transfer calculations using LBLRTM.
 
 Contact information
 -------------------
@@ -244,7 +244,7 @@ def make_array(*args):
 def make_spectral_axis(Xmin, Xmax, DVOUT):
     """
     Generate a spectral axis between `Xmin` and `Xmax` with spacing `DVOUT`.
-    
+
     Parameters
     __________
     Xmin: float
@@ -253,7 +253,7 @@ def make_spectral_axis(Xmin, Xmax, DVOUT):
       upper spectral bound, wavenumbers [cm^{-1}]
     DVOUT: float
       spectral axis spacing, wavenumbers [cm^{-1}]
-    
+
     Returns
     _______
     X: array-like
@@ -708,8 +708,8 @@ def planckian(X_in, T_in, wavelength=False):
     >>> plt.plot(X,L)
     """
     # Ensure inputs are NumPy arrays
-    X = np.asarray(X_in).flatten()  # X must be 1D array
-    T = np.asarray(T_in)
+    X = np.asarray(np.copy(X_in)).flatten()  # X must be 1D array
+    T = np.asarray(np.copy(T_in))
 
     # Make X a column vector and T a row vector for broadcasting into 2D arrays
     X = X[:, np.newaxis]
@@ -778,8 +778,8 @@ def brightnessTemperature(X_in, L_in, wavelength=False):
     >>> plt.plot(X,T)
     """
     # Ensure inputs are NumPy arrays
-    X = np.asarray(X_in).flatten()  # X must be 1D array
-    L = np.asarray(L_in)
+    X = np.asarray(np.copy(X_in)).flatten()  # X must be 1D array
+    L = np.asarray(np.copy(L_in))
 
     # Ensure X is row vector for outer products
     X = X[:, np.newaxis]
@@ -838,13 +838,13 @@ if __name__ == "__main__":
     d_wn = 1  # differential wavenumber
     d_wl = (d_wn / wn) * wl  # equivalent differential wavelength
     L_wn = planckian(wn, T)
-    L_wl = planckian(wl, T, f=True)
-    s1 = "L(X = {0}/cm, T = {1}K) = {2:0.6e} W/(cm^2·sr·cm^{{-1}})\n".format(wn, T, float(L_wn))
+    L_wl = planckian(wl, T, wavelength=True)
+    s1 = "L(X = {0}/cm, T = {1}K) = {2:0.6e} µW/(cm^2·sr·cm^{{-1}})\n".format(wn, T, float(L_wn))
     s2 = "L(X = {0}µm, T = {1}K) = {2:0.6e} µW/(cm^2·sr·µm)\n".format(wl, T, float(L_wl))
-    sa = "L(X = {0}/cm, T = {1}K) * (ΔX = {2:0.2e}/cm) = {3:0.6e} W/(cm^2 sr)\n".format(
+    sa = "L(X = {0}/cm, T = {1}K) * (ΔX = {2:0.2e}/cm) = {3:0.6e} µW/(cm^2·sr)\n".format(
         wn, T, d_wn, float(L_wn * d_wn))
-    sb = "L(X = {0}µm, T = {1}K) * (ΔX = {2:0.2e}µm) = {3:0.6e} W/(cm^2 sr)\n".format(
-        wl, T, d_wl, float(1e-6 * L_wl * d_wl))  # convert to W from µW
+    sb = "L(X = {0}µm, T = {1}K) * (ΔX = {2:0.2e}µm) = {3:0.6e} µW/(cm^2·sr)\n".format(
+        wl, T, d_wl, float(L_wl * d_wl))
     print(s1 + s2 + sa + sb)
 
     # plotting function (private)
@@ -881,17 +881,18 @@ if __name__ == "__main__":
     # Compute and visualize radiance and brightness temperature -- scalar T
     T = 296
     L1 = planckian(X1, T)
-    L2 = planckian(X2, T, f=True)
+    L2 = planckian(X2, T, wavelength=True)
     Tb1 = brightnessTemperature(X1, L1)
-    Tb2 = brightnessTemperature(X2, L2, f=True)
-    _plot_rad_Tb(X1, L1 * 1e6, Tb1, T, xl=s_wn, yl_L=s_rad_wn, yl_T=s_Tb_wn)
+    Tb2 = brightnessTemperature(X2, L2, wavelength=True)
+    _plot_rad_Tb(X1, L1, Tb1, T, xl=s_wn, yl_L=s_rad_wn, yl_T=s_Tb_wn)
     _plot_rad_Tb(X2, L2, Tb2, T, xl=s_wl, yl_L=s_rad_wl, yl_T=s_Tb_wl)
 
     # Compute and visualize radiance and brightness temperature -- vector T
     T = np.arange(250, 375, 25)
     L1 = planckian(X1, T)
-    L2 = planckian(X2, T, f=True)
+    L2 = planckian(X2, T, wavelength=True)
+    
     Tb1 = brightnessTemperature(X1, L1)
-    Tb2 = brightnessTemperature(X2, L2, f=True)
-    _plot_rad_Tb(X1, L1 * 1e6, Tb1, T, xl=s_wn, yl_L=s_rad_wn, yl_T=s_Tb_wn)
+    Tb2 = brightnessTemperature(X2, L2, wavelength=True)
+    _plot_rad_Tb(X1, L1, Tb1, T, xl=s_wn, yl_L=s_rad_wn, yl_T=s_Tb_wn)
     _plot_rad_Tb(X2, L2, Tb2, T, xl=s_wl, yl_L=s_rad_wl, yl_T=s_Tb_wl)
