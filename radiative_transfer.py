@@ -12,7 +12,7 @@ Wright-Patterson AFB, Ohio
 Kevin.Gross@afit.edu
 grosskc.afit@gmail.com
 (937) 255-3636 x4558
-Version 0.5.0 -- 25-Apr-2018
+Version 0.5.1 -- 07-Jun-2018
 
 Version History
 ---------------
@@ -29,6 +29,11 @@ V 0.4.1 02-Mar-2018: Updated comments. Removed brackets around T when ensuring T
 V 0.4.2 19-Mar-2018: Minor updates to comments and print-out formatting.
 V 0.5.0 25-Apr-2018: Major update - added ability to compute transmittance and
   upwelling & downwelling radiance (TUD) using LBLRTM.
+V 0.5.1 07-Jun-2018: Added compute_LWIR_apparent_radiance and added option to
+  specify output value for brightnessTemperature when an error is encountered.
+  Added Altitude option for compute_TUD so that T & U can be computed at multipe
+  sensor altitudes for a single atmospheric state. Added option to return surface-
+  leaving radiance in compute_LWIR_apparent_radiance. Updated some docstrings.
 
 TODO
 ____
@@ -37,6 +42,7 @@ ____
 * Make a package with subfolders
 """
 
+# Imports
 from io import StringIO
 import os, os.path
 import inspect
@@ -56,73 +62,73 @@ c2 = 1.43877736830e-02  # [m K]       - 2nd radiation constant, c2 = h * c / k
 
 # Define standard atmosphere
 StdAtmosCSV = StringIO("""
-#,Z0 [km],Z1 [km],PL [km],P [Pa],T [K],H2O,CO2,O3,N2O,CO,CH4,O2,N2,Ar
-1,0.00,0.10,0.10000,100697.30225,287.87,7.6573221E-03,3.8004431E-04,2.6744971E-08,3.2023897E-07,1.4985868E-07,1.7012743E-06,2.0915587E-01,7.7355174E-01,9.2528217E-03
-2,0.10,0.20,0.10000,99500.30518,287.23,7.4731829E-03,3.8004757E-04,2.7011305E-08,3.2024224E-07,1.4935317E-07,1.7012859E-06,2.0915878E-01,7.7373083E-01,9.2549638E-03
-3,0.20,0.30,0.10000,98317.27295,286.58,7.2934777E-03,3.8005254E-04,2.7272709E-08,3.2024707E-07,1.4884883E-07,1.7013097E-06,2.0916124E-01,7.7390597E-01,9.2570588E-03
-4,0.30,0.40,0.10000,97148.21167,285.93,7.1180305E-03,3.8005490E-04,2.7533348E-08,3.2024772E-07,1.4834590E-07,1.7013143E-06,2.0916177E-01,7.7407882E-01,9.2591263E-03
-5,0.40,0.50,0.10000,95992.99927,285.27,6.9468380E-03,3.8005615E-04,2.7807420E-08,3.2024988E-07,1.4784467E-07,1.7013228E-06,2.0916334E-01,7.7424644E-01,9.2611312E-03
-6,0.50,0.60,0.10000,94851.96533,284.63,6.7797713E-03,3.8006171E-04,2.8076512E-08,3.2025335E-07,1.4734614E-07,1.7013465E-06,2.0916519E-01,7.7440970E-01,9.2630841E-03
-7,0.60,0.70,0.10000,93723.85864,283.98,6.6166990E-03,3.8006323E-04,2.8359112E-08,3.2025477E-07,1.4684780E-07,1.7013551E-06,2.0916586E-01,7.7457018E-01,9.2650037E-03
-8,0.70,0.80,0.10000,92610.18066,283.33,6.4575248E-03,3.8006328E-04,2.8626875E-08,3.2025568E-07,1.4635113E-07,1.7013542E-06,2.0916755E-01,7.7472580E-01,9.2668651E-03
-9,0.80,0.90,0.10000,91508.79517,282.68,6.3021979E-03,3.8006456E-04,2.8903722E-08,3.2025673E-07,1.4585650E-07,1.7013672E-06,2.0916763E-01,7.7487921E-01,9.2687002E-03
-10,0.90,1.00,0.10000,90420.12939,282.02,6.1505721E-03,3.8006506E-04,2.9194448E-08,3.2025693E-07,1.4536292E-07,1.7013666E-06,2.0916760E-01,7.7502907E-01,9.2704927E-03
-11,1.00,1.25,0.25000,88520.92285,280.89,5.8755800E-03,3.8006250E-04,2.9700320E-08,3.2025457E-07,1.4447069E-07,1.7013558E-06,2.0916663E-01,7.7530178E-01,9.2737547E-03
-12,1.25,1.50,0.25000,85846.36841,279.26,5.4909759E-03,3.8005889E-04,3.0446010E-08,3.2025147E-07,1.4318157E-07,1.7013346E-06,2.0916434E-01,7.7568410E-01,9.2783278E-03
-13,1.50,1.75,0.25000,83252.58179,277.64,5.1315110E-03,3.8005147E-04,3.1212348E-08,3.2024522E-07,1.4190299E-07,1.7013047E-06,2.0916015E-01,7.7604347E-01,9.2826264E-03
-14,1.75,2.00,0.25000,80737.29858,276.02,4.7955187E-03,3.8003986E-04,3.1993196E-08,3.2023584E-07,1.4063411E-07,1.7012502E-06,2.0915397E-01,7.7638161E-01,9.2866710E-03
-15,2.00,2.25,0.25000,78270.48340,274.39,4.4242670E-03,3.8001745E-04,3.2491752E-08,3.2021686E-07,1.3936234E-07,1.7011517E-06,2.0914139E-01,7.7676092E-01,9.2912082E-03
-16,2.25,2.50,0.25000,75851.93481,272.77,4.0277741E-03,3.7998860E-04,3.2690732E-08,3.2019284E-07,1.3808986E-07,1.7010235E-06,2.0912592E-01,7.7716805E-01,9.2960780E-03
-17,2.50,2.75,0.25000,73508.09937,271.14,3.6668028E-03,3.7995877E-04,3.2890703E-08,3.2016789E-07,1.3682843E-07,1.7008889E-06,2.0910963E-01,7.7754088E-01,9.3005377E-03
-18,2.75,3.00,0.25000,71236.71265,269.51,3.3381749E-03,3.7992848E-04,3.3091947E-08,3.2014157E-07,1.3557833E-07,1.7007527E-06,2.0909248E-01,7.7788260E-01,9.3046251E-03
-19,3.00,3.25,0.25000,69009.91821,267.89,3.0342883E-03,3.7991515E-04,3.3278667E-08,3.2013017E-07,1.3448891E-07,1.7006920E-06,2.0908479E-01,7.7819051E-01,9.3083082E-03
-20,3.25,3.50,0.25000,66826.91040,266.27,2.7535658E-03,3.7991517E-04,3.3450437E-08,3.2013048E-07,1.3355726E-07,1.7006946E-06,2.0908572E-01,7.7846700E-01,9.3116154E-03
-21,3.50,4.00,0.50000,63702.83813,263.84,2.3846428E-03,3.7990557E-04,3.3707664E-08,3.2012204E-07,1.3217480E-07,1.7006492E-06,2.0907986E-01,7.7883736E-01,9.3160455E-03
-22,4.00,4.50,0.50000,59690.77759,260.59,1.9422086E-03,3.7992481E-04,3.4795157E-08,3.2013850E-07,1.3103309E-07,1.7007364E-06,2.0909050E-01,7.7926403E-01,9.3211491E-03
-23,4.50,5.00,0.50000,55886.00464,257.34,1.5628497E-03,3.7996727E-04,3.6704041E-08,3.2017431E-07,1.3059758E-07,1.7009270E-06,2.0911388E-01,7.7961576E-01,9.3253563E-03
-24,5.00,5.50,0.50000,52281.07300,254.09,1.2644272E-03,3.7997120E-04,3.8528793E-08,3.2017758E-07,1.2999899E-07,1.7009434E-06,2.0911607E-01,7.7990848E-01,9.3288577E-03
-25,5.50,6.00,0.50000,48866.29333,250.84,1.0289896E-03,3.7992757E-04,4.0244537E-08,3.2014094E-07,1.2923383E-07,1.7007494E-06,2.0909223E-01,7.8016474E-01,9.3319229E-03
-26,6.00,6.50,0.50000,45636.12976,247.59,8.2385325E-04,3.7995592E-04,4.3219430E-08,3.2016479E-07,1.2783930E-07,1.7006266E-06,2.0910759E-01,7.8035224E-01,9.3341657E-03
-27,6.50,7.00,0.50000,42581.36292,244.34,6.4788532E-04,3.8005636E-04,4.7713680E-08,3.2024974E-07,1.2582142E-07,1.7005776E-06,2.0916297E-01,7.8047130E-01,9.3355899E-03
-28,7.00,7.50,0.50000,39693.20984,241.09,5.1387883E-04,3.8009160E-04,5.2368396E-08,3.2027927E-07,1.2324612E-07,1.6999863E-06,2.0918229E-01,7.8058460E-01,9.3369450E-03
-29,7.50,8.00,0.50000,36963.39417,237.84,4.1141221E-04,3.8005578E-04,5.7147069E-08,3.2024894E-07,1.2013186E-07,1.6988258E-06,2.0916265E-01,7.8070530E-01,9.3383888E-03
-30,8.00,8.50,0.50000,34390.29236,234.59,3.0026093E-04,3.8003389E-04,6.6530347E-08,3.2010675E-07,1.1627073E-07,1.6972315E-06,2.0915066E-01,7.8082700E-01,9.3398445E-03
-31,8.50,9.00,0.50000,31965.45715,231.34,1.9727937E-04,3.8003217E-04,8.2473292E-08,3.1985491E-07,1.1171657E-07,1.6952224E-06,2.0914972E-01,7.8092969E-01,9.3410728E-03
-32,9.00,9.50,0.50000,29682.00989,228.11,1.3033135E-04,3.8003601E-04,1.0040944E-07,3.1933499E-07,1.0698130E-07,1.6922456E-06,2.0915176E-01,7.8099381E-01,9.3418398E-03
-33,9.50,10.00,0.50000,27532.14417,224.91,8.6644133E-05,3.8004096E-04,1.2016432E-07,3.1853878E-07,1.0208884E-07,1.6882650E-06,2.0915465E-01,7.8103411E-01,9.3423219E-03
-34,10.00,10.50,0.50000,25510.84900,221.69,5.9723599E-05,3.8004090E-04,1.4880519E-07,3.1716539E-07,9.7135150E-08,1.6837640E-06,2.0915459E-01,7.8106076E-01,9.3426406E-03
-35,10.50,11.00,0.50000,23610.99091,218.44,4.2918404E-05,3.8003110E-04,1.9036740E-07,3.1520574E-07,9.2138784E-08,1.6787164E-06,2.0914885E-01,7.8108302E-01,9.3429068E-03
-36,11.00,11.50,0.50000,21842.58118,216.78,3.1007603E-05,3.8000883E-04,2.3561967E-07,3.1308883E-07,8.6727809E-08,1.6728778E-06,2.0913664E-01,7.8110684E-01,9.3431918E-03
-37,11.50,12.00,0.50000,20192.59796,216.73,2.2521850E-05,3.8001611E-04,2.8276929E-07,3.1084335E-07,8.0975298E-08,1.6664052E-06,2.0914076E-01,7.8111112E-01,9.3432430E-03
-38,12.00,12.50,0.50000,18667.33093,216.7,1.6652726E-05,3.8002420E-04,3.2692944E-07,3.0854861E-07,7.4393796E-08,1.6589435E-06,2.0914517E-01,7.8111252E-01,9.3432598E-03
-39,12.50,13.00,0.50000,17257.33032,216.7,1.2564588E-05,3.8003232E-04,3.6445050E-07,3.0620373E-07,6.7191678E-08,1.6504725E-06,2.0914973E-01,7.8111203E-01,9.3432539E-03
-40,13.00,13.50,0.50000,15953.85284,216.7,9.3883436E-06,3.8002004E-04,4.1151947E-07,3.0379221E-07,6.0184412E-08,1.6414161E-06,2.0914303E-01,7.8112177E-01,9.3433704E-03
-41,13.50,14.00,0.50000,14748.85101,216.7,6.9382863E-06,3.7998561E-04,4.7057611E-07,3.0131307E-07,5.3432629E-08,1.6317608E-06,2.0912392E-01,7.8114307E-01,9.3436252E-03
-42,14.00,14.50,0.50000,13634.78546,216.7,5.6882345E-06,3.7996686E-04,5.3660847E-07,2.9869690E-07,4.7380766E-08,1.6216783E-06,2.0911379E-01,7.8115429E-01,9.3437594E-03
-43,14.50,15.00,0.50000,12604.78745,216.7,5.2244709E-06,3.7996451E-04,6.1023087E-07,2.9594358E-07,4.1959911E-08,1.6111613E-06,2.0911241E-01,7.8115606E-01,9.3437806E-03
-44,15.00,16.00,1.00000,11230.00183,216.7,4.4708750E-06,3.7999541E-04,7.5258697E-07,2.9130481E-07,3.5004010E-08,1.5947592E-06,2.0912933E-01,7.8113994E-01,9.3435878E-03
-45,16.00,17.00,1.00000,9599.99771,216.7,3.9036895E-06,3.8001325E-04,1.0169126E-06,2.8328515E-07,2.7782994E-08,1.5688780E-06,2.0913923E-01,7.8113048E-01,9.3434746E-03
-46,17.00,18.00,1.00000,8207.49893,216.7,3.8400353E-06,3.7998025E-04,1.3729086E-06,2.7296613E-07,2.2253532E-08,1.5382528E-06,2.0912108E-01,7.8114821E-01,9.3436866E-03
-47,18.00,19.00,1.00000,7015.99960,216.7,3.8393960E-06,3.7998176E-04,1.7946930E-06,2.6017312E-07,1.7556889E-08,1.5018171E-06,2.0912179E-01,7.8114714E-01,9.3436739E-03
-48,19.00,20.00,1.00000,5997.99995,216.7,3.8764683E-06,3.7997364E-04,2.2876818E-06,2.4485973E-07,1.4409030E-08,1.4533676E-06,2.0911746E-01,7.8115097E-01,9.3437197E-03
-49,20.00,22.00,2.00000,4788.41553,217.57,3.9764941E-06,3.7997778E-04,3.0358181E-06,2.2097053E-07,1.2598199E-08,1.3559661E-06,2.0911972E-01,7.8114802E-01,9.3436843E-03
-50,22.00,24.00,2.00000,3509.76715,219.55,4.1870412E-06,3.7997050E-04,4.1238559E-06,1.9704146E-07,1.3073440E-08,1.1973241E-06,2.0911567E-01,7.8115092E-01,9.3437191E-03
-51,24.00,26.00,2.00000,2580.36308,221.54,4.4063904E-06,3.8000545E-04,5.0418298E-06,1.7740817E-07,1.4803017E-08,1.0667032E-06,2.0913491E-01,7.8113090E-01,9.3434796E-03
-52,26.00,28.00,2.00000,1902.99072,223.47,4.5444967E-06,3.8001285E-04,5.6498752E-06,1.6246848E-07,1.5766954E-08,1.0021820E-06,2.0913896E-01,7.8112623E-01,9.3434237E-03
-53,28.00,30.00,2.00000,1407.21016,225.45,4.6642508E-06,3.7998866E-04,6.2325935E-06,1.4873616E-07,1.6631679E-08,9.4450036E-07,2.0912573E-01,7.8113870E-01,9.3435729E-03
-54,30.00,32.00,2.00000,1043.50023,227.67,4.7074454E-06,3.7536325E-04,6.7746596E-06,1.3014554E-07,1.7414909E-08,8.7108037E-07,2.0658007E-01,7.8365835E-01,9.3737117E-03
-55,32.00,34.00,2.00000,776.75004,230.94,4.7230560E-06,3.7075937E-04,7.2671910E-06,1.0919968E-07,1.8337271E-08,7.9487688E-07,2.0404629E-01,7.8616633E-01,9.4037107E-03
-56,34.00,36.00,2.00000,581.42772,236.36,4.8948600E-06,3.7965289E-04,7.7794029E-06,9.2485571E-08,2.0089036E-08,7.4666866E-07,2.0894088E-01,7.8132019E-01,9.3457438E-03
-57,36.00,38.00,2.00000,438.18765,241.88,5.0474359E-06,3.8805505E-04,7.9678821E-06,7.3569971E-08,2.2208699E-08,6.9390808E-07,2.1356495E-01,7.7674221E-01,9.2909843E-03
-58,38.00,40.00,2.00000,332.41796,247.45,5.0566086E-06,3.8457511E-04,7.6026390E-06,5.4176880E-08,2.4073520E-08,6.1123779E-07,2.1164984E-01,7.7863857E-01,9.3136676E-03
-59,40.00,42.00,2.00000,253.74177,253.02,5.0756607E-06,3.8000967E-04,6.8690915E-06,3.7642952E-08,2.6195995E-08,5.2326124E-07,2.0913728E-01,7.8112675E-01,9.3434299E-03
-60,42.00,46.00,4.00000,175.76751,260.9,5.1898683E-06,3.7999873E-04,5.6845497E-06,2.1269509E-08,3.0447396E-08,4.0876645E-07,2.0913120E-01,7.8113395E-01,9.3435161E-03
-61,46.00,50.00,4.00000,105.69584,269.76,5.2437290E-06,3.8003578E-04,3.9669685E-06,8.7507939E-09,3.8790922E-08,2.6933361E-07,2.0915161E-01,7.8111553E-01,9.3432958E-03
-62,50.00,54.00,4.00000,63.91487,267.03,5.1818847E-06,3.7999649E-04,2.5585023E-06,4.0358978E-09,5.2859484E-08,1.9255586E-07,2.0913003E-01,7.8113841E-01,9.3435695E-03
-63,54.00,58.00,4.00000,38.41681,258.35,5.0363133E-06,3.8001817E-04,1.6718860E-06,2.8382956E-09,7.2663589E-08,1.6327704E-07,2.0914195E-01,7.8112764E-01,9.3434406E-03
-64,58.00,62.00,4.00000,22.59020,247.46,4.7452750E-06,3.8005048E-04,1.1293572E-06,2.1092150E-09,1.0706705E-07,1.5181011E-07,2.0915969E-01,7.8111088E-01,9.3432402E-03
-65,62.00,66.00,4.00000,12.99117,236.49,4.3229702E-06,3.8004681E-04,7.7787752E-07,1.6291317E-09,1.6487030E-07,1.5011317E-07,2.0915766E-01,7.8111360E-01,9.3432727E-03
-66,66.00,70.00,4.00000,7.29694,225.53,3.7958089E-06,3.8006320E-04,4.4250618E-07,1.2967116E-09,2.4819016E-07,1.5011966E-07,2.0916671E-01,7.8110541E-01,9.3431747E-03
+#, Z0 [km], Z1 [km], PL [km], P [Pa], T [K], H2O, CO2, O3, N2O, CO, CH4, O2, N2, Ar
+ 1,  0.00,  0.10, 0.10, 100697.30, 287.87, 7.657E-03, 3.800E-04, 2.674E-08, 3.202E-07, 1.499E-07, 1.701E-06, 2.092E-01, 7.736E-01, 9.253E-03
+ 2,  0.10,  0.20, 0.10,  99500.31, 287.23, 7.473E-03, 3.800E-04, 2.701E-08, 3.202E-07, 1.494E-07, 1.701E-06, 2.092E-01, 7.737E-01, 9.255E-03
+ 3,  0.20,  0.30, 0.10,  98317.27, 286.58, 7.293E-03, 3.801E-04, 2.727E-08, 3.202E-07, 1.488E-07, 1.701E-06, 2.092E-01, 7.739E-01, 9.257E-03
+ 4,  0.30,  0.40, 0.10,  97148.21, 285.93, 7.118E-03, 3.801E-04, 2.753E-08, 3.202E-07, 1.483E-07, 1.701E-06, 2.092E-01, 7.741E-01, 9.259E-03
+ 5,  0.40,  0.50, 0.10,  95993.00, 285.27, 6.947E-03, 3.801E-04, 2.781E-08, 3.202E-07, 1.478E-07, 1.701E-06, 2.092E-01, 7.742E-01, 9.261E-03
+ 6,  0.50,  0.60, 0.10,  94851.97, 284.63, 6.780E-03, 3.801E-04, 2.808E-08, 3.203E-07, 1.473E-07, 1.701E-06, 2.092E-01, 7.744E-01, 9.263E-03
+ 7,  0.60,  0.70, 0.10,  93723.86, 283.98, 6.617E-03, 3.801E-04, 2.836E-08, 3.203E-07, 1.468E-07, 1.701E-06, 2.092E-01, 7.746E-01, 9.265E-03
+ 8,  0.70,  0.80, 0.10,  92610.18, 283.33, 6.458E-03, 3.801E-04, 2.863E-08, 3.203E-07, 1.464E-07, 1.701E-06, 2.092E-01, 7.747E-01, 9.267E-03
+ 9,  0.80,  0.90, 0.10,  91508.80, 282.68, 6.302E-03, 3.801E-04, 2.890E-08, 3.203E-07, 1.459E-07, 1.701E-06, 2.092E-01, 7.749E-01, 9.269E-03
+10,  0.90,  1.00, 0.10,  90420.13, 282.02, 6.151E-03, 3.801E-04, 2.919E-08, 3.203E-07, 1.454E-07, 1.701E-06, 2.092E-01, 7.750E-01, 9.270E-03
+11,  1.00,  1.25, 0.25,  88520.92, 280.89, 5.876E-03, 3.801E-04, 2.970E-08, 3.203E-07, 1.445E-07, 1.701E-06, 2.092E-01, 7.753E-01, 9.274E-03
+12,  1.25,  1.50, 0.25,  85846.37, 279.26, 5.491E-03, 3.801E-04, 3.045E-08, 3.203E-07, 1.432E-07, 1.701E-06, 2.092E-01, 7.757E-01, 9.278E-03
+13,  1.50,  1.75, 0.25,  83252.58, 277.64, 5.132E-03, 3.801E-04, 3.121E-08, 3.202E-07, 1.419E-07, 1.701E-06, 2.092E-01, 7.760E-01, 9.283E-03
+14,  1.75,  2.00, 0.25,  80737.30, 276.02, 4.796E-03, 3.800E-04, 3.199E-08, 3.202E-07, 1.406E-07, 1.701E-06, 2.092E-01, 7.764E-01, 9.287E-03
+15,  2.00,  2.25, 0.25,  78270.48, 274.39, 4.424E-03, 3.800E-04, 3.249E-08, 3.202E-07, 1.394E-07, 1.701E-06, 2.091E-01, 7.768E-01, 9.291E-03
+16,  2.25,  2.50, 0.25,  75851.93, 272.77, 4.028E-03, 3.800E-04, 3.269E-08, 3.202E-07, 1.381E-07, 1.701E-06, 2.091E-01, 7.772E-01, 9.296E-03
+17,  2.50,  2.75, 0.25,  73508.10, 271.14, 3.667E-03, 3.800E-04, 3.289E-08, 3.202E-07, 1.368E-07, 1.701E-06, 2.091E-01, 7.775E-01, 9.301E-03
+18,  2.75,  3.00, 0.25,  71236.71, 269.51, 3.338E-03, 3.799E-04, 3.309E-08, 3.201E-07, 1.356E-07, 1.701E-06, 2.091E-01, 7.779E-01, 9.305E-03
+19,  3.00,  3.25, 0.25,  69009.92, 267.89, 3.034E-03, 3.799E-04, 3.328E-08, 3.201E-07, 1.345E-07, 1.701E-06, 2.091E-01, 7.782E-01, 9.308E-03
+20,  3.25,  3.50, 0.25,  66826.91, 266.27, 2.754E-03, 3.799E-04, 3.345E-08, 3.201E-07, 1.336E-07, 1.701E-06, 2.091E-01, 7.785E-01, 9.312E-03
+21,  3.50,  4.00, 0.50,  63702.84, 263.84, 2.385E-03, 3.799E-04, 3.371E-08, 3.201E-07, 1.322E-07, 1.701E-06, 2.091E-01, 7.788E-01, 9.316E-03
+22,  4.00,  4.50, 0.50,  59690.78, 260.59, 1.942E-03, 3.799E-04, 3.480E-08, 3.201E-07, 1.310E-07, 1.701E-06, 2.091E-01, 7.793E-01, 9.321E-03
+23,  4.50,  5.00, 0.50,  55886.00, 257.34, 1.563E-03, 3.800E-04, 3.670E-08, 3.202E-07, 1.306E-07, 1.701E-06, 2.091E-01, 7.796E-01, 9.325E-03
+24,  5.00,  5.50, 0.50,  52281.07, 254.09, 1.264E-03, 3.800E-04, 3.853E-08, 3.202E-07, 1.300E-07, 1.701E-06, 2.091E-01, 7.799E-01, 9.329E-03
+25,  5.50,  6.00, 0.50,  48866.29, 250.84, 1.029E-03, 3.799E-04, 4.024E-08, 3.201E-07, 1.292E-07, 1.701E-06, 2.091E-01, 7.802E-01, 9.332E-03
+26,  6.00,  6.50, 0.50,  45636.13, 247.59, 8.239E-04, 3.800E-04, 4.322E-08, 3.202E-07, 1.278E-07, 1.701E-06, 2.091E-01, 7.804E-01, 9.334E-03
+27,  6.50,  7.00, 0.50,  42581.36, 244.34, 6.479E-04, 3.801E-04, 4.771E-08, 3.202E-07, 1.258E-07, 1.701E-06, 2.092E-01, 7.805E-01, 9.336E-03
+28,  7.00,  7.50, 0.50,  39693.21, 241.09, 5.139E-04, 3.801E-04, 5.237E-08, 3.203E-07, 1.232E-07, 1.700E-06, 2.092E-01, 7.806E-01, 9.337E-03
+29,  7.50,  8.00, 0.50,  36963.39, 237.84, 4.114E-04, 3.801E-04, 5.715E-08, 3.202E-07, 1.201E-07, 1.699E-06, 2.092E-01, 7.807E-01, 9.338E-03
+30,  8.00,  8.50, 0.50,  34390.29, 234.59, 3.003E-04, 3.800E-04, 6.653E-08, 3.201E-07, 1.163E-07, 1.697E-06, 2.092E-01, 7.808E-01, 9.340E-03
+31,  8.50,  9.00, 0.50,  31965.46, 231.34, 1.973E-04, 3.800E-04, 8.247E-08, 3.199E-07, 1.117E-07, 1.695E-06, 2.091E-01, 7.809E-01, 9.341E-03
+32,  9.00,  9.50, 0.50,  29682.01, 228.11, 1.303E-04, 3.800E-04, 1.004E-07, 3.193E-07, 1.070E-07, 1.692E-06, 2.092E-01, 7.810E-01, 9.342E-03
+33,  9.50, 10.00, 0.50,  27532.14, 224.91, 8.664E-05, 3.800E-04, 1.202E-07, 3.185E-07, 1.021E-07, 1.688E-06, 2.092E-01, 7.810E-01, 9.342E-03
+34, 10.00, 10.50, 0.50,  25510.85, 221.69, 5.972E-05, 3.800E-04, 1.488E-07, 3.172E-07, 9.714E-08, 1.684E-06, 2.092E-01, 7.811E-01, 9.343E-03
+35, 10.50, 11.00, 0.50,  23610.99, 218.44, 4.292E-05, 3.800E-04, 1.904E-07, 3.152E-07, 9.214E-08, 1.679E-06, 2.091E-01, 7.811E-01, 9.343E-03
+36, 11.00, 11.50, 0.50,  21842.58, 216.78, 3.101E-05, 3.800E-04, 2.356E-07, 3.131E-07, 8.673E-08, 1.673E-06, 2.091E-01, 7.811E-01, 9.343E-03
+37, 11.50, 12.00, 0.50,  20192.60, 216.73, 2.252E-05, 3.800E-04, 2.828E-07, 3.108E-07, 8.098E-08, 1.666E-06, 2.091E-01, 7.811E-01, 9.343E-03
+38, 12.00, 12.50, 0.50,  18667.33, 216.70, 1.665E-05, 3.800E-04, 3.269E-07, 3.085E-07, 7.439E-08, 1.659E-06, 2.091E-01, 7.811E-01, 9.343E-03
+39, 12.50, 13.00, 0.50,  17257.33, 216.70, 1.256E-05, 3.800E-04, 3.645E-07, 3.062E-07, 6.719E-08, 1.650E-06, 2.091E-01, 7.811E-01, 9.343E-03
+40, 13.00, 13.50, 0.50,  15953.85, 216.70, 9.388E-06, 3.800E-04, 4.115E-07, 3.038E-07, 6.018E-08, 1.641E-06, 2.091E-01, 7.811E-01, 9.343E-03
+41, 13.50, 14.00, 0.50,  14748.85, 216.70, 6.938E-06, 3.800E-04, 4.706E-07, 3.013E-07, 5.343E-08, 1.632E-06, 2.091E-01, 7.811E-01, 9.344E-03
+42, 14.00, 14.50, 0.50,  13634.79, 216.70, 5.688E-06, 3.800E-04, 5.366E-07, 2.987E-07, 4.738E-08, 1.622E-06, 2.091E-01, 7.812E-01, 9.344E-03
+43, 14.50, 15.00, 0.50,  12604.79, 216.70, 5.224E-06, 3.800E-04, 6.102E-07, 2.959E-07, 4.196E-08, 1.611E-06, 2.091E-01, 7.812E-01, 9.344E-03
+44, 15.00, 16.00, 1.00,  11230.00, 216.70, 4.471E-06, 3.800E-04, 7.526E-07, 2.913E-07, 3.500E-08, 1.595E-06, 2.091E-01, 7.811E-01, 9.344E-03
+45, 16.00, 17.00, 1.00,   9600.00, 216.70, 3.904E-06, 3.800E-04, 1.017E-06, 2.833E-07, 2.778E-08, 1.569E-06, 2.091E-01, 7.811E-01, 9.343E-03
+46, 17.00, 18.00, 1.00,   8207.50, 216.70, 3.840E-06, 3.800E-04, 1.373E-06, 2.730E-07, 2.225E-08, 1.538E-06, 2.091E-01, 7.811E-01, 9.344E-03
+47, 18.00, 19.00, 1.00,   7016.00, 216.70, 3.839E-06, 3.800E-04, 1.795E-06, 2.602E-07, 1.756E-08, 1.502E-06, 2.091E-01, 7.811E-01, 9.344E-03
+48, 19.00, 20.00, 1.00,   5998.00, 216.70, 3.876E-06, 3.800E-04, 2.288E-06, 2.449E-07, 1.441E-08, 1.453E-06, 2.091E-01, 7.812E-01, 9.344E-03
+49, 20.00, 22.00, 2.00,   4788.42, 217.57, 3.976E-06, 3.800E-04, 3.036E-06, 2.210E-07, 1.260E-08, 1.356E-06, 2.091E-01, 7.811E-01, 9.344E-03
+50, 22.00, 24.00, 2.00,   3509.77, 219.55, 4.187E-06, 3.800E-04, 4.124E-06, 1.970E-07, 1.307E-08, 1.197E-06, 2.091E-01, 7.812E-01, 9.344E-03
+51, 24.00, 26.00, 2.00,   2580.36, 221.54, 4.406E-06, 3.800E-04, 5.042E-06, 1.774E-07, 1.480E-08, 1.067E-06, 2.091E-01, 7.811E-01, 9.343E-03
+52, 26.00, 28.00, 2.00,   1902.99, 223.47, 4.544E-06, 3.800E-04, 5.650E-06, 1.625E-07, 1.577E-08, 1.002E-06, 2.091E-01, 7.811E-01, 9.343E-03
+53, 28.00, 30.00, 2.00,   1407.21, 225.45, 4.664E-06, 3.800E-04, 6.233E-06, 1.487E-07, 1.663E-08, 9.445E-07, 2.091E-01, 7.811E-01, 9.344E-03
+54, 30.00, 32.00, 2.00,   1043.50, 227.67, 4.707E-06, 3.754E-04, 6.775E-06, 1.301E-07, 1.741E-08, 8.711E-07, 2.066E-01, 7.837E-01, 9.374E-03
+55, 32.00, 34.00, 2.00,    776.75, 230.94, 4.723E-06, 3.708E-04, 7.267E-06, 1.092E-07, 1.834E-08, 7.949E-07, 2.040E-01, 7.862E-01, 9.404E-03
+56, 34.00, 36.00, 2.00,    581.43, 236.36, 4.895E-06, 3.797E-04, 7.779E-06, 9.249E-08, 2.009E-08, 7.467E-07, 2.089E-01, 7.813E-01, 9.346E-03
+57, 36.00, 38.00, 2.00,    438.19, 241.88, 5.047E-06, 3.881E-04, 7.968E-06, 7.357E-08, 2.221E-08, 6.939E-07, 2.136E-01, 7.767E-01, 9.291E-03
+58, 38.00, 40.00, 2.00,    332.42, 247.45, 5.057E-06, 3.846E-04, 7.603E-06, 5.418E-08, 2.407E-08, 6.112E-07, 2.116E-01, 7.786E-01, 9.314E-03
+59, 40.00, 42.00, 2.00,    253.74, 253.02, 5.076E-06, 3.800E-04, 6.869E-06, 3.764E-08, 2.620E-08, 5.233E-07, 2.091E-01, 7.811E-01, 9.343E-03
+60, 42.00, 46.00, 4.00,    175.77, 260.90, 5.190E-06, 3.800E-04, 5.685E-06, 2.127E-08, 3.045E-08, 4.088E-07, 2.091E-01, 7.811E-01, 9.344E-03
+61, 46.00, 50.00, 4.00,    105.70, 269.76, 5.244E-06, 3.800E-04, 3.967E-06, 8.751E-09, 3.879E-08, 2.693E-07, 2.092E-01, 7.811E-01, 9.343E-03
+62, 50.00, 54.00, 4.00,     63.91, 267.03, 5.182E-06, 3.800E-04, 2.559E-06, 4.036E-09, 5.286E-08, 1.926E-07, 2.091E-01, 7.811E-01, 9.344E-03
+63, 54.00, 58.00, 4.00,     38.42, 258.35, 5.036E-06, 3.800E-04, 1.672E-06, 2.838E-09, 7.266E-08, 1.633E-07, 2.091E-01, 7.811E-01, 9.343E-03
+64, 58.00, 62.00, 4.00,     22.59, 247.46, 4.745E-06, 3.801E-04, 1.129E-06, 2.109E-09, 1.071E-07, 1.518E-07, 2.092E-01, 7.811E-01, 9.343E-03
+65, 62.00, 66.00, 4.00,     12.99, 236.49, 4.323E-06, 3.800E-04, 7.779E-07, 1.629E-09, 1.649E-07, 1.501E-07, 2.092E-01, 7.811E-01, 9.343E-03
+66, 66.00, 70.00, 4.00,      7.30, 225.53, 3.796E-06, 3.801E-04, 4.425E-07, 1.297E-09, 2.482E-07, 1.501E-07, 2.092E-01, 7.811E-01, 9.343E-03
 """)
 StdAtmos = np.loadtxt(StdAtmosCSV, delimiter=',', skiprows=1)
 
@@ -150,6 +156,7 @@ options = {
     'LBLRTM': LBLRTM,
     'TAPE3': TAPE3,
     # options for compute_TUD
+    'Zs': StdAtmos[:, 1], # [km]
     'Ts': StdAtmos[:, 5], # [K]
     'Ps': StdAtmos[:, 4], # [Pa]
     'PLs': StdAtmos[:, 3], # [km]
@@ -157,6 +164,8 @@ options = {
     'MFs_ID': np.array([1, 2, 3, 4, 5, 6, 7, 22]),
     'theta_r': 0,
     'N_angle': 30,
+    'Altitudes': np.asarray([500]),
+    'save': False,
     }
 
 def rs1D(y):
@@ -224,23 +233,6 @@ def rsND(y, dims):
     return y.reshape(dims)
 
 
-def make_array(*args):
-    """Return NumPy array without singleton dimensions and ndim > 0."""
-    def do_work(x):
-        x = np.array(x).squeeze()
-        if x.ndim == 0:
-            x = np.array([x])
-        return x
-    # Handle single / multiple inputs separately -- simplifies output handling
-    if len(args) == 1:
-        return do_work(args)
-    else:
-        out = []
-        for x in args:
-            out.append(do_work(x))
-        return tuple(out)
-
-
 def make_spectral_axis(Xmin, Xmax, DVOUT):
     """
     Generate a spectral axis between `Xmin` and `Xmax` with spacing `DVOUT`.
@@ -260,8 +252,8 @@ def make_spectral_axis(Xmin, Xmax, DVOUT):
       spectral axis, wavenumbers [cm^{-1}]
     """
     nX = np.ceil((Xmax - Xmin) / DVOUT)
-    X = np.linspace(Xmin, Xmax, nX)
-    return X
+    X_ = np.linspace(Xmin, Xmax, nX)
+    return X_
 
 
 def compute_TUD(Xmin, Xmax, opts=options, **kwargs):
@@ -292,9 +284,9 @@ def compute_TUD(Xmin, Xmax, opts=options, **kwargs):
       downwelling radiance, [µW/(cm^2·sr·cm^{-1})]
     """
 
-    tau, Lu, Ld = [], [], []
     # Update opts dictionary and extract atmospheric variables
     opts.update(kwargs)
+    Z = opts["Zs"]
     T = opts["Ts"]
     P = opts["Ps"]
     PL = opts["PLs"]
@@ -302,53 +294,58 @@ def compute_TUD(Xmin, Xmax, opts=options, **kwargs):
     ID = opts["MFs_ID"]
     nL = T.size
     nA = opts["N_angle"]
+    Z_s = opts["Altitudes"] # [km] sensor altitude
 
     # Preallocate arrays
-    X = make_spectral_axis(Xmin, Xmax, opts["DVOUT"])
-    OD = np.zeros((X.size, nL))
-    Lu = np.zeros(X.size)
-    Ld = np.zeros((X.size, nA))
+    X_ = make_spectral_axis(Xmin, Xmax, opts["DVOUT"])
+    OD = np.zeros((X_.size, nL))
+    Lu_ = np.zeros((X_.size, Z_s.size))
+    Ld_ = np.zeros((X_.size, nA))
+    tau_ = Lu_.copy()
 
     # Compute OD's and Planckian distribution for each layer
     for ii in np.arange(nL):
-        _, OD[:,ii] = compute_OD(Xmin, Xmax, opts=options, T=T[ii], P=P[ii],
-                                 PL = PL[ii], MF_VAL=MF[ii, :], MF_ID=ID)
+        _, OD[:, ii] = compute_OD(Xmin, Xmax, opts=options, T=T[ii], P=P[ii],
+                                  PL=PL[ii], MF_VAL=MF[ii, :], MF_ID=ID)
         print(f"Computing layer {ii+1:3d} of {nL:3d}")
-    B = planckian(X, T)
+    B = planckian(X_, T)
 
-    # transmittance
-    print("Computing transmittance")
+    # transmittance and upwelling
+    print("Computing transmittance and upwelling")
     mu = 1.0/np.cos(opts["theta_r"])
-    tau = np.exp(-1.0*np.sum(OD * mu, axis=1))
-    
-    # upwelling
-    print("Computing upwelling")
-    for ii in np.arange(nL):
-        t = np.exp( - OD[:, ii] * mu)
-        Lu = t * Lu + (1 - t) * B[:, ii]
-    
-    # downwelling
+    for ii, zs in enumerate(Z_s):
+        ix = Z <= zs
+        tau_[:, ii] = np.exp(-1.0 * np.sum(OD[:, ix] * mu, axis=1))
+        nL = np.sum(ix)
+        for jj in np.arange(nL):
+            t = np.exp(-OD[:, jj] * mu)
+            Lu_[:, ii] = t * Lu_[:, ii] + (1 - t) * B[:, jj]
+    if len(Z_s) == 1:
+        tau_ = tau_.flatten()
+        Lu_ = Lu_.flatten()
+
     print("Computing downwelling")
     angles = np.linspace(0, np.pi / 2.0, nA, endpoint=False)
-    for jj, th in enumerate(angles):
-        for ii in np.arange(nL)[::-1]:
-            t = np.exp( - OD[:, ii] / np.cos(th))
-            Ld[:, jj] = t * Ld[:, jj] + (1 - t) * B[:, ii]
-        print(f"Computing angle {jj+1:3d} of {nA:3d}")
-    np.savez('ComputeTUD.npz', OD=OD, B=B, tau=tau, Ld=Ld, Lu=Lu, X=X, angles=angles)
+    for ii, th in enumerate(angles):
+        for jj in np.arange(nL)[::-1]:
+            t = np.exp(-OD[:, jj] / np.cos(th))
+            Ld_[:, ii] = t * Ld_[:, ii] + (1 - t) * B[:, jj]
+        print(f"Computing angle {ii+1:3d} of {nA:3d}")
+    if opts["save"]:
+        np.savez('ComputeTUD.npz', OD=OD, B=B, tau=tau_, Ld=Ld_, Lu=Lu_, X=X_, angles=angles)
     cos_dOmega = np.cos(angles) * np.sin(angles)
-    Ld = np.sum(Ld * cos_dOmega, axis=1) / np.sum(cos_dOmega)
-    Ld = Ld.flatten()
+    Ld_ = np.sum(Ld_ * cos_dOmega, axis=1) / np.sum(cos_dOmega)
+    Ld_ = Ld_.flatten()
 
     # Return XTUD
-    return X, tau, Lu, Ld
+    return X_, tau_, Lu_, Ld_
 
 
 def compute_OD(Xmin_in, Xmax_in, opts=options, **kwargs):
     """
     Computes the high-resolution ("monochromatic") optical depth of a single,
-    homogeneous, gaseous layer using LBLRTM. The transmittance T of the layer
-    is given by T = exp(-OD).
+    homogeneous, non-scattering gaseous layer using LBLRTM. The transmittance T
+    of the layer is given by T = exp(-OD).
     
     Parameters
     ----------
@@ -622,7 +619,7 @@ def read_tape12(fname="TAPE12"):
     __________
     fname: string, optional, {"TAPE12"}
       filename of the TAPE12-formatted file to read in
-    
+
     Returns
     _______
     nu, array-like
@@ -730,9 +727,9 @@ def planckian(X_in, T_in, wavelength=False):
 
     # Reshape L if necessary and return
     return np.reshape(L, (X.size, *dimsT))
-    
 
-def brightnessTemperature(X_in, L_in, wavelength=False):
+
+def brightnessTemperature(X_in, L_in, wavelength=False, bad_value=np.nan):
     """
     Compute brightness temperature at given spectral radiance.
 
@@ -750,16 +747,8 @@ def brightnessTemperature(X_in, L_in, wavelength=False):
     wavelength : logical
       if true, interprets spectral input `X` in wavelength [micron, µm]
       and spectral radiance `L` in [µW/(cm^2·sr·µm)] (microflick, µF)
-
-    Parameters
-    ----------
-    X: numpy array (must be a vector)
-      spectral input in wavenumbers [cm^{-1}]
-    L: numpy array
-      spectral radiance in [µW/(cm^2·sr·cm^-1)]
-    f: logical
-      if true, spectral input X is given in wavelength [µm] and L is given
-      in [µW/(cm^2·sr·µm)] (microflick, µF)
+    bad_value : value to use when an unphysical brightness temperature is
+      computed. Default is np.nan.
 
     Returns
     -------
@@ -806,93 +795,153 @@ def brightnessTemperature(X_in, L_in, wavelength=False):
 
     # NaN-ify garbage results
     ixBad = np.logical_or(np.real(L) <= 0, np.abs(np.imag(T)) > 0)
-    T[ixBad] = np.nan
+    T[ixBad] = bad_value
 
     # Reshape T if necessary
     return np.reshape(T, (X.size, *dimsL[1:]))
 
 
+def compute_LWIR_apparent_radiance(X, emis, Ts, tau, La, Ld, dT=None, return_Ls=False):
+    r"""
+    Compute LWIR spectral radiance for given emissivities and atmospheric states.
 
-if __name__ == "__main__":
-    # Simple test script
-    import matplotlib as mpl
-    import matplotlib.pyplot as plt
+    Efficienetly computes (via broadcasting) every combination of spectral radiance
+    for a set of emissivity profiles, a set of atmospheric radiative terms, and an
+    optional range of surface temperatures. Assumes pure, flat, lambertian material.
 
-    # Set plotting defaults
-    mpl.rcParams['text.usetex'] = True
-    mpl.rcParams['font.family'] = 'serif'
-    mpl.rcParams['text.latex.preamble'] = r'\usepackage[adobe-utopia]{mathdesign}, \usepackage{siunitx}'
+    :math: L_i(\nu) = \tau(\nu) \left[ \varepsilon_i(\nu) B(\nu,T_i) + (1-\varepsilon(\nu)) L_d(\nu) \right] + L_a(\nu)
 
-    # Define strings containing LaTeX formatted stuff for plots
-    s_rad_wn = r'Spectral Radiance, $L(\tilde{\nu})$ $\left[ \si{ {\micro}W/(cm^2.sr.cm^{-1}) } \right]$'
-    s_rad_wl = r'Spectral Radiance, $L(\lambda)$ $\left[ \si{ {\micro}W/(cm^2.sr.\um) } \right]$'
-    s_Tb_wn = r'Brightness Temperature, $T_B(\tilde{\nu})$ $\left[\si{K}\right]$'
-    s_Tb_wl = r'Brightness Temperature, $T_B(\lambda)$ $\left[\si{K}\right]$'
-    s_wn = r'Wavenumbers, $\tilde{\nu}$ $\left[\si{cm^{-1}}\right]$'
-    s_wl = r'Wavelength, $\lambda$ $\left[\si{{\micro}m}\right]$'
+    Parameters
+    __________
+    X: array_like (nX,)
+      spectral axis in wavenumbers [1/cm], 1D array of length `nX`
+    emis: array_like (nX, nE)
+      emissivity array – `nE` is the number of materials
+    Ts: array_like (nA,)
+      surface temperature [K], 1D array of length `nA`
+    tau: array_like (nX, nA)
+      atmospheric transmittance between source and sensor [0 ≤ tau ≤ 1]
+    La: array_like (nX, nA)
+      upwelling atmospheric path radiance [µW/(cm^2 sr cm^{-1})]
+    Ld: array_like (nX, nA)
+      hemispherically-averaged atmospheric downwelling radiance [µW/(cm^2 sr cm^{-1})]
+    dT: array_like (nT,), optional {None}
+      surface temperature deltas, relative to `Ts` [K]
 
-    # Test at known temperatures and wavenumbers / wavelengths -- print results
-    T = 296
-    wn = 500  # wavenumber
-    wl = 10000 / wn  # equivalent wavelength
-    d_wn = 1  # differential wavenumber
-    d_wl = (d_wn / wn) * wl  # equivalent differential wavelength
-    L_wn = planckian(wn, T)
-    L_wl = planckian(wl, T, wavelength=True)
-    s1 = "L(X = {0}/cm, T = {1}K) = {2:0.6e} µW/(cm^2·sr·cm^{{-1}})\n".format(wn, T, float(L_wn))
-    s2 = "L(X = {0}µm, T = {1}K) = {2:0.6e} µW/(cm^2·sr·µm)\n".format(wl, T, float(L_wl))
-    sa = "L(X = {0}/cm, T = {1}K) * (ΔX = {2:0.2e}/cm) = {3:0.6e} µW/(cm^2·sr)\n".format(
-        wn, T, d_wn, float(L_wn * d_wn))
-    sb = "L(X = {0}µm, T = {1}K) * (ΔX = {2:0.2e}µm) = {3:0.6e} µW/(cm^2·sr)\n".format(
-        wl, T, d_wl, float(L_wl * d_wl))
-    print(s1 + s2 + sa + sb)
+    Returns
+    _______
+    L: array_like (nX, nE, nA) or (nX, nE, nA, nT)
+      apparent spectral radiance
+    """
+    if dT is not None:
+        T_ = Ts.flatten()[:, np.newaxis] + \
+            np.asarray(dT).flatten()[np.newaxis, :]
+        B_ = planckian(X, T_)[:, np.newaxis, :, :]
+        tau_ = tau[:, np.newaxis, :, np.newaxis]
+        La_ = La[:, np.newaxis, :, np.newaxis]
+        Ld_ = Ld[:, np.newaxis, :, np.newaxis]
+        em_ = emis[:, :, np.newaxis, np.newaxis]
+    else:
+        T_ = Ts.flatten()
+        B_ = planckian(X, T_)[:, np.newaxis, :]
+        tau_ = tau[:, np.newaxis, :]
+        La_ = La[:, np.newaxis, :]
+        Ld_ = Ld[:, np.newaxis, :]
+        em_ = emis[:,:, np.newaxis]
+    if return_Ls:
+        Ls = em_ * B_ + (1-em_) * Ld_
+        L = tau_ * Ls + La_
+        return L, Ls
+    else:
+        L = tau_ * (em_ * B_ + (1-em_) * Ld_) + La_
+        return L
 
-    # plotting function (private)
-    def _plot_rad_Tb(X, L, Tb, T, xl=None, yl_L=None, yl_T=None):
-        """Plot Planckian and brightness temp distribution for V&V."""
-        def my_legend(T):
-            if T is not None:
-                return ["$T = {0}$ K".format(TT) for TT in np.array(T).flatten()]
-            else:
-                return None
-        plt.figure(figsize=(7.5, 10.5))
-        plt.subplot(2, 1, 1)
-        plt.plot(X, L)
-        plt.xlabel(xl)
-        plt.ylabel(yl_L)
-        plt.legend(my_legend(T))
-        plt.title('Planckian Spectral Radiance Distribution')
-        plt.subplot(2, 1, 2)
-        plt.plot(X, Tb)
-        plt.title('Spectral Brightness Temperature Distribution')
-        try:
-            if len(T) > 3:
-                plt.yticks(T)
-        except:
-            None
-        plt.xlabel(xl)
-        plt.ylabel(yl_T)
-        plt.show()
 
-    # Common spectral axis for visualizations
-    X1 = np.linspace(100, 2500, 500)  # [1/cm] wavenumbers
-    X2 = 10000 / X1  # [µm] wavelength
+# if __name__ == "__main__":
+#     # Simple test script
+#     import matplotlib as mpl
+#     import matplotlib.pyplot as plt
 
-    # Compute and visualize radiance and brightness temperature -- scalar T
-    T = 296
-    L1 = planckian(X1, T)
-    L2 = planckian(X2, T, wavelength=True)
-    Tb1 = brightnessTemperature(X1, L1)
-    Tb2 = brightnessTemperature(X2, L2, wavelength=True)
-    _plot_rad_Tb(X1, L1, Tb1, T, xl=s_wn, yl_L=s_rad_wn, yl_T=s_Tb_wn)
-    _plot_rad_Tb(X2, L2, Tb2, T, xl=s_wl, yl_L=s_rad_wl, yl_T=s_Tb_wl)
+#     # Set plotting defaults
+#     mpl.rcParams['text.usetex'] = True
+#     mpl.rcParams['font.family'] = 'serif'
+#     mpl.rcParams['text.latex.preamble'] = r'\usepackage[adobe-utopia]{mathdesign}, \usepackage{siunitx}'
 
-    # Compute and visualize radiance and brightness temperature -- vector T
-    T = np.arange(250, 375, 25)
-    L1 = planckian(X1, T)
-    L2 = planckian(X2, T, wavelength=True)
+#     # Define strings containing LaTeX formatted stuff for plots
+#     s_rad_wn = r'Spectral Radiance, $L(\tilde{\nu})$ $\left[ \si{ {\micro}W/(cm^2.sr.cm^{-1}) } \right]$'
+#     s_rad_wl = r'Spectral Radiance, $L(\lambda)$ $\left[ \si{ {\micro}W/(cm^2.sr.\um) } \right]$'
+#     s_Tb_wn = r'Brightness Temperature, $T_B(\tilde{\nu})$ $\left[\si{K}\right]$'
+#     s_Tb_wl = r'Brightness Temperature, $T_B(\lambda)$ $\left[\si{K}\right]$'
+#     s_wn = r'Wavenumbers, $\tilde{\nu}$ $\left[\si{cm^{-1}}\right]$'
+#     s_wl = r'Wavelength, $\lambda$ $\left[\si{{\micro}m}\right]$'
+
+#     # Test at known temperatures and wavenumbers / wavelengths -- print results
+#     T = 296
+#     wn = 500  # wavenumber
+#     wl = 10000 / wn  # equivalent wavelength
+#     d_wn = 1  # differential wavenumber
+#     d_wl = (d_wn / wn) * wl  # equivalent differential wavelength
+#     L_wn = planckian(wn, T)
+#     L_wl = planckian(wl, T, wavelength=True)
+#     s1 = "L(X = {0}/cm, T = {1}K) = {2:0.6e} µW/(cm^2·sr·cm^{{-1}})\n".format(wn, T, float(L_wn))
+#     s2 = "L(X = {0}µm, T = {1}K) = {2:0.6e} µW/(cm^2·sr·µm)\n".format(wl, T, float(L_wl))
+#     sa = "L(X = {0}/cm, T = {1}K) * (ΔX = {2:0.2e}/cm) = {3:0.6e} µW/(cm^2·sr)\n".format(
+#         wn, T, d_wn, float(L_wn * d_wn))
+#     sb = "L(X = {0}µm, T = {1}K) * (ΔX = {2:0.2e}µm) = {3:0.6e} µW/(cm^2·sr)\n".format(
+#         wl, T, d_wl, float(L_wl * d_wl))
+#     print(s1 + s2 + sa + sb)
+
+#     # plotting function (private)
+#     def _plot_rad_Tb(X, L, Tb, T, xl=None, yl_L=None, yl_T=None):
+#         """Plot Planckian and brightness temp distribution for V&V."""
+#         def my_legend(T):
+#             if T is not None:
+#                 return ["$T = {0}$ K".format(TT) for TT in np.array(T).flatten()]
+#             else:
+#                 return None
+#         plt.figure(figsize=(7.5, 10.5))
+#         plt.subplot(2, 1, 1)
+#         plt.plot(X, L)
+#         plt.xlabel(xl)
+#         plt.ylabel(yl_L)
+#         plt.legend(my_legend(T))
+#         plt.title('Planckian Spectral Radiance Distribution')
+#         plt.subplot(2, 1, 2)
+#         plt.plot(X, Tb)
+#         plt.title('Spectral Brightness Temperature Distribution')
+#         try:
+#             if len(T) > 3:
+#                 plt.yticks(T)
+#         except:
+#             None
+#         plt.xlabel(xl)
+#         plt.ylabel(yl_T)
+#         plt.show()
+
+#     # Common spectral axis for visualizations
+#     X1 = np.linspace(100, 2500, 500)  # [1/cm] wavenumbers
+#     X2 = 10000 / X1  # [µm] wavelength
+
+#     # Compute and visualize radiance and brightness temperature -- scalar T
+#     T = 296
+#     L1 = planckian(X1, T)
+#     L2 = planckian(X2, T, wavelength=True)
+#     Tb1 = brightnessTemperature(X1, L1)
+#     Tb2 = brightnessTemperature(X2, L2, wavelength=True)
+#     # _plot_rad_Tb(X1, L1, Tb1, T, xl=s_wn, yl_L=s_rad_wn, yl_T=s_Tb_wn)
+#     # _plot_rad_Tb(X2, L2, Tb2, T, xl=s_wl, yl_L=s_rad_wl, yl_T=s_Tb_wl)
+
+#     # Compute and visualize radiance and brightness temperature -- vector T
+#     T = np.arange(250, 375, 25)
+#     L1 = planckian(X1, T)
+#     L2 = planckian(X2, T, wavelength=True)
     
-    Tb1 = brightnessTemperature(X1, L1)
-    Tb2 = brightnessTemperature(X2, L2, wavelength=True)
-    _plot_rad_Tb(X1, L1, Tb1, T, xl=s_wn, yl_L=s_rad_wn, yl_T=s_Tb_wn)
-    _plot_rad_Tb(X2, L2, Tb2, T, xl=s_wl, yl_L=s_rad_wl, yl_T=s_Tb_wl)
+#     Tb1 = brightnessTemperature(X1, L1)
+#     Tb2 = brightnessTemperature(X2, L2, wavelength=True)
+#     # _plot_rad_Tb(X1, L1, Tb1, T, xl=s_wn, yl_L=s_rad_wn, yl_T=s_Tb_wn)
+#     # _plot_rad_Tb(X2, L2, Tb2, T, xl=s_wl, yl_L=s_rad_wl, yl_T=s_Tb_wl)
+
+#     Xmin = 650
+#     Xmax = 1550
+#     DV = 0.001
+#     X, tau_SA, La_SA, Ld_SA = compute_TUD(Xmin, Xmax, DVOUT=DV)
