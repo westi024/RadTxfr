@@ -12,7 +12,7 @@ Wright-Patterson AFB, Ohio
 Kevin.Gross@afit.edu
 grosskc.afit@gmail.com
 (937) 255-3636 x4558
-Version 0.5.1 -- 07-Jun-2018
+Version 0.5.2 -- 06-Sep-2018
 
 Version History
 ---------------
@@ -34,6 +34,8 @@ V 0.5.1 07-Jun-2018: Added compute_LWIR_apparent_radiance and added option to
   Added Altitude option for compute_TUD so that T & U can be computed at multipe
   sensor altitudes for a single atmospheric state. Added option to return surface-
   leaving radiance in compute_LWIR_apparent_radiance. Updated some docstrings.
+V 0.5.2 06-Sep-2018: Added BT2L (brightness temperature to radiance) and added
+  option to return OD instead of T in computeTUD
 
 TODO
 ____
@@ -166,6 +168,7 @@ options = {
     'N_angle': 30,
     'Altitudes': np.asarray([500]),
     'save': False,
+    'returnOD': False
     }
 
 def rs1D(y):
@@ -294,7 +297,8 @@ def compute_TUD(Xmin, Xmax, opts=options, **kwargs):
     ID = opts["MFs_ID"]
     nL = T.size
     nA = opts["N_angle"]
-    Z_s = opts["Altitudes"] # [km] sensor altitude
+    Z_s = opts["Altitudes"]  # [km] sensor altitude
+    returnOD = opts["returnOD"]
 
     # Preallocate arrays
     X_ = make_spectral_axis(Xmin, Xmax, opts["DVOUT"])
@@ -312,10 +316,15 @@ def compute_TUD(Xmin, Xmax, opts=options, **kwargs):
 
     # transmittance and upwelling
     print("Computing transmittance and upwelling")
+    if returnOD:
+        print("Returning optical depth in place of transmittance")
     mu = 1.0/np.cos(opts["theta_r"])
     for ii, zs in enumerate(Z_s):
         ix = Z <= zs
-        tau_[:, ii] = np.exp(-1.0 * np.sum(OD[:, ix] * mu, axis=1))
+        if returnOD:
+            tau_[:, ii] = np.sum(OD[:, ix] * mu, axis=1)
+        else:
+            tau_[:, ii] = np.exp(-1.0 * np.sum(OD[:, ix] * mu, axis=1))
         nL = np.sum(ix)
         for jj in np.arange(nL):
             t = np.exp(-OD[:, jj] * mu)
@@ -346,7 +355,7 @@ def compute_OD(Xmin_in, Xmax_in, opts=options, **kwargs):
     Computes the high-resolution ("monochromatic") optical depth of a single,
     homogeneous, non-scattering gaseous layer using LBLRTM. The transmittance T
     of the layer is given by T = exp(-OD).
-    
+
     Parameters
     ----------
     Xmin: float
@@ -390,8 +399,8 @@ def compute_OD(Xmin_in, Xmax_in, opts=options, **kwargs):
         nu, od = run_LBLRTM(Xmin, Xmax1, opts=opts)
         XX = make_spectral_axis(Xmin + pad, Xmax1 - pad, DVOUT)
         X.append(XX)
-        OD.append(np.interp(XX, nu, od))        
-    
+        OD.append(np.interp(XX, nu, od))
+
     # Stitch chunks together into single output vector
     N = np.ceil((Xmax_in - Xmin_in) / DVOUT)
     X_out = np.linspace(Xmin_in, Xmax_in, N)
@@ -420,7 +429,7 @@ def run_LBLRTM(V1, V2, opts=options, **kwargs):
         see code for defaults
     kwargs: named parameters, optional
       can use named parameters to over-ride defaults in options dictionary
-    
+
     Returns
     _______
     nu: array-like
@@ -800,6 +809,76 @@ def brightnessTemperature(X_in, L_in, wavelength=False, bad_value=np.nan):
     # Reshape T if necessary
     return np.reshape(T, (X.size, *dimsL[1:]))
 
+def BT2L(X_in, T_in, wavelength=False, bad_value=np.nan):
+    """
+    Compute brightness temperature at given spectral radiance.
+
+    The brightness temperature is the temperature at which a perfect blackbody
+    would need to be to produce the same spectral radiance L at each specified
+    wavenumber X. The shape of output T will be ``(X.size, *L.shape)``.
+
+    Parameters
+    ----------
+    X : array_like (N,)
+      spectral axis, wavenumbers [1/cm], 1D array
+    T : array_like
+      spectral brightness temperature in [K], arbitrary dimensions with spectral
+      dimension first
+    wavelength : logical
+      if true, interprets spectral input `X` in wavelength [micron, µm]
+    bad_value : value to use when an unphysical brightness temperature is
+      computed. Default is np.nan.
+
+    Returns
+    -------
+    L : numpy array
+      spectral radiance in [µW/(cm^2 sr cm^{-1})] or [µW/(cm^2 sr µm)]
+
+    Example
+    _______
+    >>> import numpy as np
+    >>> import matplotlib.pyplot as plt
+    >>> import radiative_transfer as rt
+    >>> X = np.linspace(2000,5000,100)
+    >>> T = np.linspace(273,373,10)
+    >>> L = rt.planckian(X,T)
+    >>> T = rt.brightnessTemperature(X,L)
+    >>> plt.plot(X,T)
+    """
+    # Ensure inputs are NumPy arrays
+    X = np.asarray(np.copy(X_in)).flatten()  # X must be 1D array
+    T = np.asarray(np.copy(T_in))
+
+    # Ensure X is row vector for outer products
+    X = X[:, np.newaxis]
+
+    # Make T a column vector or 2D array w/ spectral axis as 1st dimension
+    if T.ndim == 1:  # if it is a vector, must be same shape as X
+        T = T[:, np.newaxis]
+        dimsT = T.shape
+    else: # otherwise collapse / reshape with 1st dimension corresponding to X
+        dimsT = T.shape
+        T = T.reshape((dimsT[0], np.prod(dimsT[1:])))
+
+    # Evaluate brightness temperature
+    if wavelength or np.mean(X) < 50:  # compute using wavelength (with hueristics)
+        if not wavelength:
+            print('Assumes X given in µm and L given in µF')
+        X *= 1e-6  # convert to m from µm
+        L = c1 / (X**5 * (np.exp(c2 / (X * T)) - 1))  # [W/(m^2 sr m)] SI
+        L *= 1e-4  # convert to [µW/(cm^2 sr µm^{-1})]
+    else:  # compute using wavenumbers
+        X *= 100  # convert to 1/m from 1/cm
+        L = c1 * X**3 / (np.exp(c2 * X / T) - 1)  # [W/(m^2 sr m^{-1})]
+        L *= 1e4  # convert to [µW/(cm^2 sr cm^{-1})] (1e6 / 1e2)
+
+    # NaN-ify garbage results
+    ixBad = np.logical_or(np.real(T) <= 0, np.abs(np.imag(T)) > 0)
+    L[ixBad] = bad_value
+
+    # Reshape L if necessary
+    return np.reshape(L, (X.size, *dimsT[1:]))
+
 
 def compute_LWIR_apparent_radiance(X, emis, Ts, tau, La, Ld, dT=None, return_Ls=False):
     r"""
@@ -935,7 +1014,7 @@ def compute_LWIR_apparent_radiance(X, emis, Ts, tau, La, Ld, dT=None, return_Ls=
 #     T = np.arange(250, 375, 25)
 #     L1 = planckian(X1, T)
 #     L2 = planckian(X2, T, wavelength=True)
-    
+
 #     Tb1 = brightnessTemperature(X1, L1)
 #     Tb2 = brightnessTemperature(X2, L2, wavelength=True)
 #     # _plot_rad_Tb(X1, L1, Tb1, T, xl=s_wn, yl_L=s_rad_wn, yl_T=s_Tb_wn)
