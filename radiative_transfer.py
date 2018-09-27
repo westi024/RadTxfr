@@ -12,7 +12,7 @@ Wright-Patterson AFB, Ohio
 Kevin.Gross@afit.edu
 grosskc.afit@gmail.com
 (937) 255-3636 x4558
-Version 0.5.2 -- 06-Sep-2018
+Version 0.5.3 -- 27-Sep-2018
 
 Version History
 ---------------
@@ -36,6 +36,7 @@ V 0.5.1 07-Jun-2018: Added compute_LWIR_apparent_radiance and added option to
   leaving radiance in compute_LWIR_apparent_radiance. Updated some docstrings.
 V 0.5.2 06-Sep-2018: Added BT2L (brightness temperature to radiance) and added
   option to return OD instead of T in computeTUD
+V 0.5.3 27-Sep-2018: Added smooth, reduce resolution, and ILS_MAKO functions
 
 TODO
 ____
@@ -52,6 +53,7 @@ import subprocess
 import tempfile
 
 import numpy as np
+import scipy
 import matplotlib.pyplot as plt
 
 
@@ -935,6 +937,123 @@ def compute_LWIR_apparent_radiance(X, emis, Ts, tau, La, Ld, dT=None, return_Ls=
         L = tau_ * (em_ * B_ + (1-em_) * Ld_) + La_
         return L
 
+def ILS_MAKO(X, Y):
+    """
+    Apply MAKO instrument line shape (ILS) to high-resolution spectrum.
+    """
+
+    # MAKO spectral axis in µm
+    X_out = np.array([
+        7.5711, 7.6158, 7.6606, 7.7053, 7.7500, 7.7947, 7.8394, 7.8841, 7.9288, 7.9734, 8.0181, 8.0627, 8.1073, 8.1519,
+        8.1965, 8.2411, 8.2857, 8.3303, 8.3748, 8.4194, 8.4639, 8.5084, 8.5529, 8.5974, 8.6419, 8.6863, 8.7308, 8.7752,
+        8.8197, 8.8641, 8.9085, 8.9529, 8.9973, 9.0417, 9.0860, 9.1304, 9.1747, 9.2190, 9.2633, 9.3076, 9.3519, 9.3962,
+        9.4405, 9.4847, 9.5290, 9.5732, 9.6174, 9.6616, 9.7058, 9.7500, 9.7942, 9.8383, 9.8825, 9.9266, 9.9707, 10.0148,
+        10.0589, 10.1030, 10.1471, 10.1912, 10.2352, 10.2792, 10.3233, 10.3673, 10.4113, 10.4553, 10.4993, 10.5432, 10.5872,
+        10.6311, 10.6751, 10.7190, 10.7629, 10.8068, 10.8507, 10.8945, 10.9384, 10.9822, 11.0261, 11.0699, 11.1137, 11.1575,
+        11.2013, 11.2451, 11.2888, 11.3326, 11.3763, 11.4201, 11.4638, 11.5075, 11.5512, 11.5948, 11.6385, 11.6822, 11.7258,
+        11.7694, 11.8131, 11.8567, 11.9003, 11.9439, 11.9874, 12.0310, 12.0745, 12.1181, 12.1616, 12.2051, 12.2486, 12.2921,
+        12.3356, 12.3791, 12.4225, 12.4660, 12.5094, 12.5528, 12.5962, 12.6396, 12.6830, 12.7264, 12.7697, 12.8131, 12.8564,
+        12.8997, 12.9430, 12.9863, 13.0296, 13.0729, 13.1162, 13.1594])
+    
+    X_out = np.sort(10000.0 / X_out) # [1/cm] from [µm]
+    sigma_out = np.abs(np.gradient(X_out))
+    
+    # Gaussian lineshape
+    g = lambda x, x0, s: np.exp(-0.5 * ((x - x0) / s)**2) / (s * np.sqrt(2.0 * np.pi))
+    ILS = g(X[:, np.newaxis], X_out[np.newaxis, :], sigma_out[np.newaxis, :])
+    N = np.sum(ILS,axis=0)
+
+    # Convolve with input spectrum / spectra
+    if len(Y.shape) == 1:
+        Y_out = np.sum(ILS*Y[:,np.newaxis], axis=0)/N
+    else:
+        Y_out = np.zeros((X_out.size, Y.shape[-1]))
+        for ii in range(Y.shape[-1]):
+            Y_out[:,ii] = np.sum(ILS*Y[:,ii][:,np.newaxis], axis=0)/N
+    return X_out, Y_out
+
+def smooth(x, window_len=11, window='hanning'):
+    """smooth the data using a window with requested size.
+
+    This method is based on the convolution of a scaled window with the signal.
+    The signal is prepared by introducing reflected copies of the signal
+    (with the window size) in both ends so that transient parts are minimized
+    in the begining and end part of the output signal.
+
+    input:
+        x: the input signal
+        window_len: the dimension of the smoothing window; should be an odd integer
+        window: the type of window from 'flat', 'hanning', 'hamming', 'bartlett', 'blackman'
+            flat window will produce a moving average smoothing.
+
+    output:
+        the smoothed signal
+
+    example:
+
+    t=linspace(-2,2,0.1)
+    x=sin(t)+randn(len(t))*0.1
+    y=smooth(x)
+
+    see also:
+
+    numpy.hanning, numpy.hamming, numpy.bartlett, numpy.blackman, numpy.convolve
+    scipy.signal.lfilter
+
+    TODO: the window parameter could be the window itself if an array instead of a string
+    NOTE: length(output) != length(input), to correct this: return y[(window_len/2-1):-(window_len/2)]
+          instead of just y.
+    """
+
+    if x.ndim != 1:
+        print("smooth only accepts 1 dimension arrays.")
+        return x
+
+    if x.size < window_len:
+        print("Input vector needs to be bigger than window size.")
+        return x
+
+    if window_len < 3:
+        return x
+
+    if window not in ['flat', 'hanning', 'hamming', 'bartlett', 'blackman']:
+        print("Window is on of 'flat', 'hanning', 'hamming', 'bartlett', 'blackman'")
+        return x
+
+    s = np.r_[x[window_len-1:0:-1], x, x[-2:-window_len-1:-1]]
+    if window == 'flat':  # moving average
+        w = np.ones(window_len, 'd')
+    else:
+        w = eval('np.'+window+'(window_len)')
+
+    y = np.convolve(w / w.sum(), s, mode='valid')
+
+    ix0 = int(np.ceil(window_len / 2 - 1))
+    ix1 = -int(np.floor(window_len/2))
+    return y[ix0:ix1]
+
+def reduceResolution(X, Y, dX, N=4, window='hanning', X_out=None):
+    dX_in = np.mean(np.diff(X))
+    smFactor = np.int(np.round(dX/dX_in))
+    smFcn1 = lambda y: smooth(y, window_len=smFactor, window=window)
+    smFcn = lambda y: 0.5*(smFcn1(y) + smFcn1(y[::-1])[::-1])
+    interpFcn = lambda x, y, x0: scipy.interpolate.interp1d(x, y, kind='cubic', bounds_error=False, fill_value=0)(x0)
+    X_ = smFcn(X)
+    nPts = np.int(np.ceil(N * (X_[-smFactor-1] - X_[smFactor]) / dX))+1
+    returnX_out = False
+    if X_out is None:
+        X_out = np.linspace(X_[smFactor], X_[-smFactor-1], nPts)
+        returnX_out = True
+    if len(Y.shape) > 1:
+        Y_out = np.zeros((X_out.size, Y.shape[-1]))
+        for ii in range(Y.shape[-1]):
+            Y_out[:, ii] = interpFcn(X_, smFcn(Y[:, ii]), X_out)
+    else:
+        Y_out = interpFcn(X_, smFcn(Y), X_out)
+    if returnX_out:
+        return X_out, Y_out
+    else:
+        return Y_out
 
 # if __name__ == "__main__":
 #     # Simple test script
