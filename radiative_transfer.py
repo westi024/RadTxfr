@@ -53,7 +53,7 @@ import subprocess
 import tempfile
 
 import numpy as np
-import scipy
+import scipy.interpolate
 import matplotlib.pyplot as plt
 
 

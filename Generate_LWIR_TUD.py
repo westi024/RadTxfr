@@ -3,7 +3,7 @@ import ctypes
 from datetime import datetime
 
 import numpy as np
-import scipy
+import scipy.interpolate
 from scipy.io import loadmat
 import matplotlib.pyplot as plt
 import h5py
