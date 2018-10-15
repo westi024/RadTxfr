@@ -12,7 +12,7 @@ Wright-Patterson AFB, Ohio
 Kevin.Gross@afit.edu
 grosskc.afit@gmail.com
 (937) 255-3636 x4558
-Version 0.5.3 -- 27-Sep-2018
+Version 0.5.4 -- 15-Oct-2018
 
 Version History
 ---------------
@@ -31,12 +31,14 @@ V 0.5.0 25-Apr-2018: Major update - added ability to compute transmittance and
   upwelling & downwelling radiance (TUD) using LBLRTM.
 V 0.5.1 07-Jun-2018: Added compute_LWIR_apparent_radiance and added option to
   specify output value for brightnessTemperature when an error is encountered.
-  Added Altitude option for compute_TUD so that T & U can be computed at multipe
+  Added Altitude option for compute_TUD so that T & U can be computed at multiple
   sensor altitudes for a single atmospheric state. Added option to return surface-
   leaving radiance in compute_LWIR_apparent_radiance. Updated some docstrings.
 V 0.5.2 06-Sep-2018: Added BT2L (brightness temperature to radiance) and added
   option to return OD instead of T in computeTUD
 V 0.5.3 27-Sep-2018: Added smooth, reduce resolution, and ILS_MAKO functions
+V 0.5.4 15-Oct-2018: Removed for-loop in ILS_MAKO; added ability to increase 
+  resolution for MAKO-like instrument; improved documentation of ILS_MAKO
 
 TODO
 ____
@@ -60,7 +62,7 @@ import matplotlib.pyplot as plt
 # Module constants
 # h  = 6.6260689633e-34 # [J s]       - Planck's constant
 # c  = 299792458        # [m/s]       - speed of light
-# k  = 1.380650424e-23  # [J/K]       - Boltzman constant
+# k  = 1.380650424e-23  # [J/K]       - Boltzmann constant
 c1 = 1.19104295315e-16  # [J m^2 / s] - 1st radiation constant, c1 = 2*h*c^2
 c2 = 1.43877736830e-02  # [m K]       - 2nd radiation constant, c2 = h * c / k
 
@@ -937,9 +939,23 @@ def compute_LWIR_apparent_radiance(X, emis, Ts, tau, La, Ld, dT=None, return_Ls=
         L = tau_ * (em_ * B_ + (1-em_) * Ld_) + La_
         return L
 
-def ILS_MAKO(X, Y):
+def ILS_MAKO(X, Y, resFactor=None):
     """
     Apply MAKO instrument line shape (ILS) to high-resolution spectrum.
+
+    Parameters
+    ----------
+    X : array_like (nX,)
+        spectral axis in wavenumbers [1/cm], 1D array of length `nX`
+    Y : array_like (nX,) or (nX, nS)
+        high-resolution spectrum or spectral array to convolve with ILS
+    
+    Returns
+    -------
+    X_out : array_like (128,) or (128*resFactor, )
+        output spectral axis in wavenumbers
+    Y_out : array_like (128, nS) or (128*resFactor, nS)
+        convolved spectrum or spectral array
     """
 
     # MAKO spectral axis in µm
@@ -954,22 +970,31 @@ def ILS_MAKO(X, Y):
         11.7694, 11.8131, 11.8567, 11.9003, 11.9439, 11.9874, 12.0310, 12.0745, 12.1181, 12.1616, 12.2051, 12.2486, 12.2921,
         12.3356, 12.3791, 12.4225, 12.4660, 12.5094, 12.5528, 12.5962, 12.6396, 12.6830, 12.7264, 12.7697, 12.8131, 12.8564,
         12.8997, 12.9430, 12.9863, 13.0296, 13.0729, 13.1162, 13.1594])
-    
+
+    # Increase spectral resolution by resFactor for a MAKO-like sensor
+    if resFactor is not None:
+        _x0 = np.linspace(0, 1, len(X_out))
+        _x1 = np.linspace(0, 1, int(len(X_out)*resFactor))
+        X_out = np.interp(_x1, _x0, X_out)
+
+    # Convert to wavenumbers
     X_out = np.sort(10000.0 / X_out) # [1/cm] from [µm]
     sigma_out = np.abs(np.gradient(X_out))
-    
+
     # Gaussian lineshape
     g = lambda x, x0, s: np.exp(-0.5 * ((x - x0) / s)**2) / (s * np.sqrt(2.0 * np.pi))
     ILS = g(X[:, np.newaxis], X_out[np.newaxis, :], sigma_out[np.newaxis, :])
-    N = np.sum(ILS,axis=0)
+    N = np.sum(ILS, axis=0)
 
     # Convolve with input spectrum / spectra
     if len(Y.shape) == 1:
-        Y_out = np.sum(ILS*Y[:,np.newaxis], axis=0)/N
+        Y_out = np.sum(ILS * Y[:,np.newaxis], axis=0) / N
     else:
-        Y_out = np.zeros((X_out.size, Y.shape[-1]))
-        for ii in range(Y.shape[-1]):
-            Y_out[:,ii] = np.sum(ILS*Y[:,ii][:,np.newaxis], axis=0)/N
+        Y_out = np.transpose(np.sum(ILS[None,:,:] * Y.T[:,:,None], axis=1) / N[None,:])
+        # Broadcasting eliminates this equivalent for-loop
+        # Y_out = np.zeros((X_out.size, Y.shape[-1]))
+        # for ii in range(Y.shape[-1]):
+        #     Y_out[:,ii] = np.sum(ILS*Y[:,ii][:,np.newaxis], axis=0)/N
     return X_out, Y_out
 
 def smooth(x, window_len=11, window='hanning'):
