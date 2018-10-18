@@ -32,8 +32,8 @@ Z_SA = z.copy()
 # atmopspheric state variables
 _P = atmos["P"].flatten()*100  # pressure [Pa] from [hPa]
 _T = atmos["T"]                # temperature profile, [K]
-_H2O = atmos["H2O"]/1e6        # water profile, [ppmv]
-_O3 = atmos["O3"]              # ozone profile, [ppmv] from mixing fraction
+_H2O = atmos["H2O"]/1e6        # water profile, [ppmv] from mixing fraction
+_O3 = atmos["O3"]              # ozone profile, [ppmv]
 _z = atmos["z"]                # altitude [km]
 nAtm = _T.shape[0]             # number of atmospheric states
 
@@ -46,6 +46,33 @@ for ii, idx in enumerate(ix):
     T[ii, :] = interp(_z[idx,:], _T[idx,:], z)
     H2O[ii, :] = interp(_z[idx,:], _H2O[idx,:], z)
     O3[ii, :] = interp(_z[idx,:], _O3[idx,:], z)
+
+# Determine mean profile
+Tm, H2Om, O3m = tuple(map(lambda x: np.mean(x, axis=0), (T, H2O, O3)))
+
+# Define Jacobian helper function
+def JacIn(X, dX, rel=False):
+    X_out = np.tile(X, (X.shape[-1], 1))
+    if np.isscalar(dX):
+        if rel:
+            dX *= np.ones_like(X_out) * np.sqrt(np.mean(X_out**2))
+        else:
+            dX += np.zeros_like(X_out)
+    for ii in np.arange(len(X_out)):
+        X_out[ii, ii] = X_out[ii, ii] + dX[ii, ii]
+    return X_out
+
+# Create inputs to compute TUD Jacobian about mean atmospheric profiles
+relStep = 0.001
+varsJ = JacIn(np.hstack((Tm, H2Om, O3m)), relStep, rel=True)
+var = []
+l = len(Tm)
+for ii in range(3):
+    ix = np.arange(ii*l, (ii+1)*l)
+    var.append(varsJ[ix][:,ix])
+Tm_J, H2Om_J, O3m_J = tuple(map(lambda x: np.tile(x, (x.shape[-1] + 1, 1)), (Tm, H2Om, O3m)))
+Tm_J[1:,:], H2Om_J[1:,:], O3m_J[1:,:] = var[0], var[1], var[2]
+nAtm = Tm_J.shape[0]
 
 # Extract subset of the 2311 atmospheric states
 # N = 100
@@ -61,38 +88,14 @@ for ii, idx in enumerate(ix):
 # Altitudes at which to compute tau and La
 Altitudes = np.concatenate((np.array([200, 500, 1000, 2000, 5000, 10000, 20000, 50000]) * 0.3048 /1e3, [z.max()])) # [km] from [ft]
 
-def reduceResolution(X, Y, dX, N=4, window='hanning', X_out=None):
-    dX_in = np.mean(np.diff(X))
-    smFactor = np.int(np.round(dX/dX_in))
-    smFcn1 = lambda y: smooth(y, window_len=smFactor, window=window)
-    smFcn = lambda y: 0.5*(smFcn1(y) + smFcn1(y[::-1])[::-1])
-    interpFcn = lambda x, y, x0: scipy.interpolate.interp1d(x, y, kind='cubic', bounds_error=False, fill_value=0)(x0)
-    X_ = smFcn(X)
-    nPts = np.int(np.ceil(N * (X_[-smFactor-1] - X_[smFactor]) / dX))+1
-    returnX_out = False
-    if X_out is None:
-        X_out = np.linspace(X_[smFactor], X_[-smFactor-1], nPts)
-        returnX_out = True
-    if len(Y.shape) > 1:
-        Y_out = np.zeros((X_out.size, Y.shape[-1]))
-        for ii in range(Y.shape[-1]):
-            Y_out[:, ii] = interpFcn(X_, smFcn(Y[:, ii]), X_out)
-    else:
-        Y_out = interpFcn(X_, smFcn(Y), X_out)
-    if returnX_out:
-        return X_out, Y_out
-    else:
-        return Y_out
-
-
 # Compute TUD for StdAtmos
 Xmin = 690
 Xmax = 1410
 DV = 0.0005
 DV_out = 0.25
 XX, OD_SA, La_SA, Ld_SA = rt.compute_TUD(Xmin, Xmax, DVOUT=DV, returnOD=True)
-X, OD_SA = reduceResolution(XX, OD_SA, DV_out)
-f = lambda X_in, Y_in: reduceResolution(X_in, Y_in, DV_out, X_out=X)
+X, OD_SA = rt.reduceResolution(XX, OD_SA, DV_out)
+f = lambda X_in, Y_in: rt.reduceResolution(X_in, Y_in, DV_out, X_out=X)
 La_SA = f(XX, La_SA)
 Ld_SA = f(XX, Ld_SA)
 
@@ -118,14 +121,17 @@ La = make_shared(La)
 Ld = make_shared(Ld)
 
 lock = mp.Lock()
-fname = datetime.now().strftime('%Y%m%d-%H%M%S') + '-LWIR-TUD.npz'
+fname = datetime.now().strftime('%Y%m%d-%H%M%S') + '-LWIR-TUD-Jacobian.npz'
 
 def parallel_function(jj):
     """Function that operates on shared memory."""
 
-    MFs_VAL = 1e6*np.asarray([H2O[jj, :], CO2, O3[jj, :]]).T
+    # MFs_VAL = 1e6*np.asarray([H2O[jj, :], CO2, O3[jj, :]]).T
+    # nu, OD_, La_, Ld_ = rt.compute_TUD(Xmin, Xmax, MFs_VAL=MFs_VAL, MFs_ID=[1, 2, 3],
+    #                                    Ts=T[jj, :], DVOUT=DV, Altitudes=Altitudes, returnOD=True)
+    MFs_VAL = 1e6*np.asarray([H2Om_J[jj, :], CO2, O3m_J[jj, :]]).T
     nu, OD_, La_, Ld_ = rt.compute_TUD(Xmin, Xmax, MFs_VAL=MFs_VAL, MFs_ID=[1, 2, 3],
-                                       Ts=T[jj, :], DVOUT=DV, Altitudes=Altitudes, returnOD=True)
+                                       Ts=Tm_J[jj, :], DVOUT=DV, Altitudes=Altitudes, returnOD=True)
 
     OD_ = f(nu, OD_)
     La_ = f(nu, La_)
@@ -156,7 +162,8 @@ if __name__ == '__main__':
             np.savez(fname, X=X, OD=OD, La=La, Ld=Ld, Altitudes=Altitudes)
 
     # Save as HDF5 file
-    hf = h5py.File('LWIR_TUD.h5', 'w')
+    # hf = h5py.File('LWIR_TUD.h5', 'w')
+    hf = h5py.File('LWIR_TUD_JACOBIAN.h5', 'w')
     d = hf.create_dataset('X', data=X)
     d.attrs['units'] = 'cm^{-1}'
     d.attrs['name'] = 'Wavenumbers'
