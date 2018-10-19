@@ -39,6 +39,7 @@ V 0.5.2 06-Sep-2018: Added BT2L (brightness temperature to radiance) and added
 V 0.5.3 27-Sep-2018: Added smooth, reduce resolution, and ILS_MAKO functions
 V 0.5.4 15-Oct-2018: Removed for-loop in ILS_MAKO; added ability to increase 
   resolution for MAKO-like instrument; improved documentation of ILS_MAKO
+V 0.5.5 19-Oct-2018: Added ability for ILS_MAKO to return only Y_out
 
 TODO
 ____
@@ -939,7 +940,7 @@ def compute_LWIR_apparent_radiance(X, emis, Ts, tau, La, Ld, dT=None, return_Ls=
         L = tau_ * (em_ * B_ + (1-em_) * Ld_) + La_
         return L
 
-def ILS_MAKO(X, Y, resFactor=None):
+def ILS_MAKO(X, Y, resFactor=None, returnX=True):
     """
     Apply MAKO instrument line shape (ILS) to high-resolution spectrum.
 
@@ -995,7 +996,10 @@ def ILS_MAKO(X, Y, resFactor=None):
         # Y_out = np.zeros((X_out.size, Y.shape[-1]))
         # for ii in range(Y.shape[-1]):
         #     Y_out[:,ii] = np.sum(ILS*Y[:,ii][:,np.newaxis], axis=0)/N
-    return X_out, Y_out
+    if returnX:
+        return X_out, Y_out
+    else:
+        return Y_out
 
 def smooth(x, window_len=11, window='hanning'):
     """smooth the data using a window with requested size.
