@@ -112,6 +112,7 @@ venv.bak/
 
 # Visual Studio Code cruft
 .vscode/
+settings.json
 .ropenproject/
 
 # Mac-specific cruft
