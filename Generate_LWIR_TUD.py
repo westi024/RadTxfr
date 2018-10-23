@@ -33,8 +33,8 @@ Z_SA = z.copy()
 # atmopspheric state variables
 _P = atmos["P"].flatten()*100  # pressure [Pa] from [hPa]
 _T = atmos["T"]                # temperature profile, [K]
-_H2O = atmos["H2O"]/1e6        # water profile, [ppmv] from mixing fraction
-_O3 = atmos["O3"]              # ozone profile, [ppmv]
+_H2O = atmos["H2O"]/1e6        # water profile, mixing fraction from [ppmv]
+_O3 = atmos["O3"]              # ozone profile, mixing fraction
 _z = atmos["z"]                # altitude [km]
 nAtm = _T.shape[0]             # number of atmospheric states
 
@@ -56,7 +56,7 @@ def JacIn(X, dX, rel=False):
     X_out = np.tile(X, (X.shape[-1], 1))
     if np.isscalar(dX):
         if rel:
-            dX *= np.ones_like(X_out) * np.sqrt(np.mean(X_out**2))
+            dX *= np.ones_like(X_out) * np.max(np.abs(X_out))
         else:
             dX += np.zeros_like(X_out)
     for ii in np.arange(len(X_out)):
@@ -65,14 +65,9 @@ def JacIn(X, dX, rel=False):
 
 # Create inputs to compute TUD Jacobian about mean atmospheric profiles
 relStep = 0.001
-varsJ = JacIn(np.hstack((Tm, H2Om, O3m)), relStep, rel=True)
-var = []
-l = len(Tm)
-for ii in range(3):
-    ix = np.arange(ii*l, (ii+1)*l)
-    var.append(varsJ[:,ix])
-Tm_J, H2Om_J, O3m_J = tuple(map(lambda x: np.tile(x, (3*x.shape[-1] + 1, 1)), (Tm, H2Om, O3m)))
-Tm_J[1:,:], H2Om_J[1:,:], O3m_J[1:,:] = var[0], var[1], var[2]
+Tm_J, H2Om_J, O3m_J = tuple(map(lambda x: np.tile(x, (x.shape[0] * 3 + 1, 1)), [Tm, H2Om, O3m]))
+ixT, ixH2O, ixO3 = 1+np.arange(0, 66), 1+np.arange(66,66*2), 1+np.arange(66*2,66*3)
+Tm_J[ixT,:], H2Om_J[ixH2O,:], O3m_J[ixO3,:] = tuple(map(lambda x: JacIn(x, relStep, rel=True), (Tm, H2Om, O3m)))
 nAtm = Tm_J.shape[0]
 
 # Altitudes at which to compute tau and La
