@@ -12,7 +12,7 @@ Wright-Patterson AFB, Ohio
 Kevin.Gross@afit.edu
 grosskc.afit@gmail.com
 (937) 255-3636 x4558
-Version 0.5.4 -- 15-Oct-2018
+Version 0.5.5 -- 19-Oct-2018
 
 Version History
 ---------------
@@ -37,9 +37,11 @@ V 0.5.1 07-Jun-2018: Added compute_LWIR_apparent_radiance and added option to
 V 0.5.2 06-Sep-2018: Added BT2L (brightness temperature to radiance) and added
   option to return OD instead of T in computeTUD
 V 0.5.3 27-Sep-2018: Added smooth, reduce resolution, and ILS_MAKO functions
-V 0.5.4 15-Oct-2018: Removed for-loop in ILS_MAKO; added ability to increase 
+V 0.5.4 15-Oct-2018: Removed for-loop in ILS_MAKO; added ability to increase
   resolution for MAKO-like instrument; improved documentation of ILS_MAKO
 V 0.5.5 19-Oct-2018: Added ability for ILS_MAKO to return only Y_out
+V 0.5.6 04-Dec-2018: Fixed bug with brightness temperature computation when only
+  a single spectral location is given. Fixed ILS_MAKO FWHM estimation.
 
 TODO
 ____
@@ -812,7 +814,9 @@ def brightnessTemperature(X_in, L_in, wavelength=False, bad_value=np.nan):
     T[ixBad] = bad_value
 
     # Reshape T if necessary
-    return np.reshape(T, (X.size, *dimsL[1:]))
+    if [*dimsL[1:]] != [1]:
+        return np.reshape(T, (X.size, *dimsL[1:]))
+    return T
 
 def BT2L(X_in, T_in, wavelength=False, bad_value=np.nan):
     """
@@ -980,7 +984,7 @@ def ILS_MAKO(X, Y, resFactor=None, returnX=True):
 
     # Convert to wavenumbers
     X_out = np.sort(10000.0 / X_out) # [1/cm] from [µm]
-    sigma_out = np.abs(np.gradient(X_out))
+    sigma_out = np.abs(np.gradient(X_out)) / 1.6
 
     # Gaussian lineshape
     g = lambda x, x0, s: np.exp(-0.5 * ((x - x0) / s)**2) / (s * np.sqrt(2.0 * np.pi))
