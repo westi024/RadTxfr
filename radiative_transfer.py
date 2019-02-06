@@ -305,12 +305,17 @@ def compute_TUD(Xmin, Xmax, opts=options, **kwargs):
     nL = T.size
     nA = opts["N_angle"]
     Z_s = opts["Altitudes"]  # [km] sensor altitude
+    mu_s = 1.0/np.cos(opts["theta_r"])
     returnOD = opts["returnOD"]
+
+    # Ensure Z_s and mu are numpy arrays
+    f = lambda x: np.array([x]).ravel()
+    Z_s, mu_s = tuple(map(f, [Z_s, mu_s]))
 
     # Preallocate arrays
     X_ = make_spectral_axis(Xmin, Xmax, opts["DVOUT"])
     OD = np.zeros((X_.size, nL))
-    Lu_ = np.zeros((X_.size, Z_s.size))
+    Lu_ = np.zeros((X_.size, Z_s.size, mu_s.size))
     Ld_ = np.zeros((X_.size, nA))
     tau_ = Lu_.copy()
 
@@ -325,20 +330,26 @@ def compute_TUD(Xmin, Xmax, opts=options, **kwargs):
     print("Computing transmittance and upwelling")
     if returnOD:
         print("Returning optical depth in place of transmittance")
-    mu = 1.0/np.cos(opts["theta_r"])
     for ii, zs in enumerate(Z_s):
-        ix = Z <= zs
-        if returnOD:
-            tau_[:, ii] = np.sum(OD[:, ix] * mu, axis=1)
-        else:
-            tau_[:, ii] = np.exp(-1.0 * np.sum(OD[:, ix] * mu, axis=1))
-        nL = np.sum(ix)
-        for jj in np.arange(nL):
-            t = np.exp(-OD[:, jj] * mu)
-            Lu_[:, ii] = t * Lu_[:, ii] + (1 - t) * B[:, jj]
-    if len(Z_s) == 1:
-        tau_ = tau_.flatten()
-        Lu_ = Lu_.flatten()
+        for jj, mu in enumerate(mu_s):
+            ix = Z <= zs
+            if returnOD:
+                tau_[:, ii, jj] = np.sum(OD[:, ix] * mu, axis=1)
+            else:
+                tau_[:, ii, jj] = np.exp(-1.0 * np.sum(OD[:, ix] * mu, axis=1))
+            nL = np.sum(ix)
+            for kk in np.arange(nL):
+                t = np.exp(-OD[:, kk] * mu)
+                Lu_[:, ii, jj] = t * Lu_[:, ii, jj] + (1 - t) * B[:, kk]
+    if (len(Z_s) == 1) and (len(mu_s) == 1):
+        tau_ = tau_[:, 0, 0]
+        Lu_ = Lu_[:, 0, 0]
+    if (len(Z_s) == 1) and not (len(mu_s) == 1):
+        tau_ = tau_[:, 0, :]
+        Lu_ = Lu_[:, 0, :]
+    if not (len(Z_s) == 1) and (len(mu_s) == 1):
+        tau_ = tau_[:, :, 0]
+        Lu_ = Lu_[:, :, 0]
 
     print("Computing downwelling")
     angles = np.linspace(0, np.pi / 2.0, nA, endpoint=False)
@@ -348,7 +359,7 @@ def compute_TUD(Xmin, Xmax, opts=options, **kwargs):
             Ld_[:, ii] = t * Ld_[:, ii] + (1 - t) * B[:, jj]
         print(f"Computing angle {ii+1:3d} of {nA:3d}")
     if opts["save"]:
-        np.savez('ComputeTUD.npz', OD=OD, B=B, tau=tau_, Ld=Ld_, Lu=Lu_, X=X_, angles=angles)
+        np.savez('ComputeTUD.npz', OD=OD, B=B, tau=tau_, Ld=Ld_, Lu=Lu_, X=X_, angles=angles, Z_s=Z_s, mu_s=mu_s)
     cos_dOmega = np.cos(angles) * np.sin(angles)
     Ld_ = np.sum(Ld_ * cos_dOmega, axis=1) / np.sum(cos_dOmega)
     Ld_ = Ld_.flatten()
@@ -498,7 +509,7 @@ def write_tape5(fname="TAPE5", opts=options, **kwargs):
     C = opts.get("MF", np.zeros(38))
     if "MF_ID" in opts.keys() and "MF_VAL" in opts.keys():
         idx = [i-1 for i in list(opts['MF_ID'])]
-        C[idx] = opts['MF_VAL']
+        C[idx] = opts['MF_VAL'] # [ppmv]
 
     # Update mixing fraction via molecule name specification
     hitranMolecules = ['H2O', 'CO2', 'O3', 'N2O', 'CO', 'CH4', 'O2', 'NO', 'SO2', 'NO2', 'NH3',
@@ -810,7 +821,7 @@ def brightnessTemperature(X_in, L_in, wavelength=False, bad_value=np.nan):
         T = c2 * X / np.log(c1 * X**3 / L + 1)
 
     # NaN-ify garbage results
-    ixBad = np.logical_or(np.real(L) <= 0, np.abs(np.imag(T)) > 0)
+    ixBad = ~np.isfinite(L) | (np.real(L) <= 0) | (np.abs(np.imag(T)) > 0)
     T[ixBad] = bad_value
 
     # Reshape T if necessary
@@ -882,7 +893,7 @@ def BT2L(X_in, T_in, wavelength=False, bad_value=np.nan):
         L *= 1e4  # convert to [µW/(cm^2 sr cm^{-1})] (1e6 / 1e2)
 
     # NaN-ify garbage results
-    ixBad = np.logical_or(np.real(T) <= 0, np.abs(np.imag(T)) > 0)
+    ixBad = ~np.isfinite(L) | (np.real(T) <= 0) | (np.abs(np.imag(T)) > 0)
     L[ixBad] = bad_value
 
     # Reshape L if necessary
@@ -944,7 +955,7 @@ def compute_LWIR_apparent_radiance(X, emis, Ts, tau, La, Ld, dT=None, return_Ls=
         L = tau_ * (em_ * B_ + (1-em_) * Ld_) + La_
         return L
 
-def ILS_MAKO(X, Y, resFactor=None, returnX=True):
+def ILS_MAKO(X, Y, resFactor=None, returnX=True, fwhm_sf=1.0, shift=0.0, scale=1.0):
     """
     Apply MAKO instrument line shape (ILS) to high-resolution spectrum.
 
@@ -983,13 +994,22 @@ def ILS_MAKO(X, Y, resFactor=None, returnX=True):
         X_out = np.interp(_x1, _x0, X_out)
 
     # Convert to wavenumbers
-    X_out = np.sort(10000.0 / X_out) # [1/cm] from [µm]
-    sigma_out = np.abs(np.gradient(X_out)) / 1.6
+    X_out = np.sort(10000.0 / X_out)  # [1/cm] from [µm]
+    X_out = X_out[(X_out > X.min()) & (X_out < X.max())]
 
-    # Gaussian lineshape
-    g = lambda x, x0, s: np.exp(-0.5 * ((x - x0) / s)**2) / (s * np.sqrt(2.0 * np.pi))
-    ILS = g(X[:, np.newaxis], X_out[np.newaxis, :], sigma_out[np.newaxis, :])
+    # Triangle lineshape
+    def tri(x, x0, s):
+        w = 1.0 - np.abs(x-x0) / s
+        w[w < 0] = 0
+        return w
+    sigma_out = fwhm_sf * np.abs(np.gradient(X_out)) * 1.6
+    ILS = tri(X[:,None], scale * X_out[None,:] + shift, sigma_out[None,:])
     N = np.sum(ILS, axis=0)
+
+    # # Gaussian lineshape
+    # g = lambda x, x0, s: np.exp(-0.5 * ((x - x0) / s)** 2) / (s * np.sqrt(2.0 * np.pi))
+    # ILS = g(X[:, np.newaxis], scale * X_out[np.newaxis, :] + shift, sigma_out[np.newaxis, :])
+    # N = np.sum(ILS, axis=0)
 
     # Convolve with input spectrum / spectra
     if len(Y.shape) == 1:
@@ -1002,8 +1022,7 @@ def ILS_MAKO(X, Y, resFactor=None, returnX=True):
         #     Y_out[:,ii] = np.sum(ILS*Y[:,ii][:,np.newaxis], axis=0)/N
     if returnX:
         return X_out, Y_out
-    else:
-        return Y_out
+    return Y_out
 
 def smooth(x, window_len=11, window='hanning'):
     """smooth the data using a window with requested size.
@@ -1070,7 +1089,7 @@ def reduceResolution(X, Y, dX, N=4, window='hanning', X_out=None):
     smFactor = np.int(np.round(dX/dX_in))
     smFcn1 = lambda y: smooth(y, window_len=smFactor, window=window)
     smFcn = lambda y: 0.5*(smFcn1(y) + smFcn1(y[::-1])[::-1])
-    interpFcn = lambda x, y, x0: scipy.interpolate.interp1d(x, y, kind='cubic', bounds_error=False, fill_value=0)(x0)
+    interpFcn = lambda x, y, x0: scipy.interpolate.interp1d(x, y, kind='cubic', bounds_error=False, fill_value='extrapolate')(x0)
     X_ = smFcn(X)
     nPts = np.int(np.ceil(N * (X_[-smFactor-1] - X_[smFactor]) / dX))+1
     returnX_out = False
