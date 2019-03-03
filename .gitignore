@@ -9,6 +9,8 @@ __pycache__/
 .vscode/
 
 *.tp3
+*.h5
+*.npz
 lblrtm_v*
 TAPE*
 
