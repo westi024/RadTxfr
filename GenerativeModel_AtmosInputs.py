@@ -53,7 +53,7 @@ def mf2rh(P, T, mf):
     return RH
 
 # Atmospheric state parameters
-f = h5py.File("LWIR_TUD.h5", "r")
+f = h5py.File("data/LWIR_TUD.h5", "r")
 z, T, P, H2O, O3 = tuple(map(lambda x: f[x][...], ['z', 'T', 'P', 'H2O', 'O3']))
 P = np.ones(T.shape) * P[None,:] # expand P to same size as T for convenience
 
@@ -64,8 +64,9 @@ O3[O3 < 0] = 0
 # Filter out super-saturated air
 RH_max = 98
 RH = mf2rh(P, T, H2O)
-ix = np.any(RH > RH_max, axis=1)
-print(f"Removed {np.sum(ix):d} profiles with one or more layers exceeding {RH_max:d}% RH")
+ixBad = np.any(RH > RH_max, axis=1)
+print(f"Removed {np.sum(ixBad):d} profiles with one or more layers exceeding {RH_max:d}% RH")
+ix = ~ixBad
 T = T[ix,:]
 H2O = H2O[ix,:]
 O3 = O3[ix,:]
@@ -89,7 +90,7 @@ def atmos_filter(T_n, H2O_n, cH2O_n, O3_n, cO3_n):
 
     return ~ixBad
 
-def atmos_generator(n_pca=10, n_gmm=10):
+def atmos_generator(n_pca=15, n_gmm=10):
 
     # Standardize and concatenate into feature vector
     Tz, Tm, Ts = standardize(T)
@@ -187,20 +188,28 @@ plt.plot(O3.T, z, '-b', O3n.T, z, '-r')
 
 
 
-# def trans_T(T):
-#     Tm = T.mean()
-#     Ts = T.std()
-#     return (T - Tm) / Ts, Tm, Ts
+def trans_T(T):
+    T_ = np.copy(T)
+    Tg = T_[:, 0]
+    T_ = T_ - Tg[:,None]
+    Tm = T_.mean()
+    Ts = T_.std()
+    Tgm = Tg.mean()
+    Tgs = Tg.std()
+    Tg = (Tg - Tgm) / Tgs
+    Tr = T_[:,1:]
+    Tout = np.vstack((Tg,Tr))
+    return Tout, Tg, Tgm, Tgs, Tm, Ts
 
-# def itrans_T(T, Tm, Ts):
-#     return T * Ts + Tm
+def itrans_T(T, Tm, Ts):
+    return T * Ts + Tm
 
-# def trans_C(x):
-#     c = np.cumsum(x)
-#     cm = c.mean()
-#     cs = c.std()
-#     c = (c - cm) / cs
-#     c_pk = c.max(c,axis=1)
-#     c = c_pk - c
+def trans_C(x):
+    c = np.cumsum(x)
+    cm = c.mean()
+    cs = c.std()
+    c = (c - cm) / cs
+    c_pk = c.max(c,axis=1)
+    c = c_pk - c
 
 
