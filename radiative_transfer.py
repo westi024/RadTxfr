@@ -756,7 +756,7 @@ def planckian(X_in, T_in, wavelength=False):
     return np.reshape(L, (X.size, *dimsT))
 
 
-def brightnessTemperature(X_in, L_in, wavelength=False, bad_value=np.nan):
+def brightnessTemperature(X_in, L_in, wavelength=False, bad_value=np.nan, spectral_dim=0):
     """
     Compute brightness temperature at given spectral radiance.
 
@@ -797,6 +797,10 @@ def brightnessTemperature(X_in, L_in, wavelength=False, bad_value=np.nan):
     X = np.asarray(np.copy(X_in)).flatten()  # X must be 1D array
     L = np.asarray(np.copy(L_in))
 
+    # Swap axes, if necessary
+    if spectral_dim != 0:
+        L = np.swapaxes(L, 0, spectral_dim)
+
     # Ensure X is row vector for outer products
     X = X[:, np.newaxis]
 
@@ -826,10 +830,15 @@ def brightnessTemperature(X_in, L_in, wavelength=False, bad_value=np.nan):
 
     # Reshape T if necessary
     if [*dimsL[1:]] != [1]:
-        return np.reshape(T, (X.size, *dimsL[1:]))
+        T = np.reshape(T, (X.size, *dimsL[1:]))
+
+    # Swap axes, if necessary
+    if spectral_dim != 0:
+        T = np.swapaxes(T, 0, spectral_dim)
+    
     return T
 
-def BT2L(X_in, T_in, wavelength=False, bad_value=np.nan):
+def BT2L(X_in, T_in, wavelength=False, bad_value=np.nan, spectral_dim=0):
     """
     Compute brightness temperature at given spectral radiance.
 
@@ -869,6 +878,10 @@ def BT2L(X_in, T_in, wavelength=False, bad_value=np.nan):
     X = np.asarray(np.copy(X_in)).flatten()  # X must be 1D array
     T = np.asarray(np.copy(T_in))
 
+    # Swap axes, if necessary
+    if spectral_dim != 0:
+        T = np.swapaxes(T, 0, spectral_dim)
+
     # Ensure X is row vector for outer products
     X = X[:, np.newaxis]
 
@@ -896,8 +909,14 @@ def BT2L(X_in, T_in, wavelength=False, bad_value=np.nan):
     ixBad = ~np.isfinite(L) | (np.real(T) <= 0) | (np.abs(np.imag(T)) > 0)
     L[ixBad] = bad_value
 
-    # Reshape L if necessary
-    return np.reshape(L, (X.size, *dimsT[1:]))
+    # Reshape output
+    L = np.reshape(L, (X.size, *dimsT[1:]))
+
+    # Swap axes, if necessary
+    if spectral_dim != 0:
+        L = np.swapaxes(L, 0, spectral_dim)
+
+    return L
 
 
 def compute_LWIR_apparent_radiance(X, emis, Ts, tau, La, Ld, dT=None, return_Ls=False):
