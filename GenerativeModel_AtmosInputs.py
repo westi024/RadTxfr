@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import atmos
 
 from sklearn.decomposition import PCA
-from sklearn.mixture import GaussianMixture
+from sklearn.mixture import GaussianMixture, BayesianGaussianMixture
 
 # ---------------------------------------------------------------------
 # Functions for building PCA and GMM models
@@ -22,9 +22,9 @@ def pca_mdl(X, n_components=20, w=None):
     Xm = pca.inverse_transform(Xr) / w[None,:]
     return pca, Xr, Xm
 
-def pca_gmm_gen_mdl(X, n_pca=15, n_gmm=10, scree=True, w=None):
+def pca_gmm_gen_mdl(X, n_pca=15, n_gmm=10, scree=False, w=None):
     pca, Xr, Xm = pca_mdl(X, n_components=n_pca, w=w)
-    pdf = GaussianMixture(n_components=n_gmm, covariance_type='full', max_iter=10000)
+    pdf = BayesianGaussianMixture(n_components=n_gmm, covariance_type='full', max_iter=25000)
     pdf.fit(Xr)
     if scree:
         plt.figure()
@@ -79,8 +79,10 @@ def mol_cum2mf(c, P, T):
 # Functions to map atmospheric variables to feature space
 # ---------------------------------------------------------------------
 
-def trans_T(T, P):
+def trans_T(T, P, Tm=None):
     T_ = np.copy(T)
+    if Tm is not None:
+        T_ -= Tm[None,:]
     Tg = T_[:,0]
     T_ = T_ - Tg[:,None]
     Tr = T_[:,1:]
@@ -97,7 +99,7 @@ def trans_T(T, P):
     trans_vars_T = (Tgm, Tgs, Trm, Trs)
     return T_, trans_vars_T, w
 
-def itrans_T(T_, trans_vars_T, T=None, q=0.05):
+def itrans_T(T_, trans_vars_T, T=None, q=0.1, Tm=None):
     Tgm, Tgs, Trm, Trs = trans_vars_T
     Tg = T_[:,-1]
     Tg = Tg * Tgs + Tgm
@@ -105,13 +107,14 @@ def itrans_T(T_, trans_vars_T, T=None, q=0.05):
     Tr = Tr * Trs + Trm
     Tr = Tr + Tg[:, None]
     T_ = np.hstack((Tg[:, None], Tr))
+    if Tm is not None:
+        T_ += Tm[None,:]
 
     ix = np.ones(T_.shape[0]) == 1
     if T is not None:
         ixBad = np.any(T_ - (1-q)*(T.min(axis=0)[None,:]) < 0, axis=1) | np.any(T_ - (1+q)*(T.max(axis=0)[None,:]) > 0, axis=1)
         ixBad = ixBad | np.any(np.abs(np.diff(T_, axis=1)) - (1+q)*(np.abs(np.diff(T, axis=1)).max(axis=0)[None,:]) > 0, axis=1)
         ix = ~ixBad
-    print(len(ix),sum(ix))
     return T_, ix
 
 def trans_C(x, P, T):
@@ -132,7 +135,7 @@ def trans_C(x, P, T):
     trans_vars_C = (crm, crs, cpm, cps)
     return c_, trans_vars_C, w
 
-def itrans_C(c_, trans_vars_C, P, T, c=None, q=0.1):
+def itrans_C(c_, trans_vars_C, P, T, c=None, q=0.05):
     crm, crs, cpm, cps = trans_vars_C
     cu = np.copy(c_)
     cp = cu[:, -1]
@@ -153,15 +156,15 @@ def itrans_C(c_, trans_vars_C, P, T, c=None, q=0.1):
         ix = ~ixBad
     return x_, ix
 
-def atmos_to_features(P, T, H2O, O3, transform=False):
+def atmos_to_features(P, T, H2O, O3, transform=False, Tm=None):
     ixT = np.arange(0, T.shape[1]).astype(np.int)
     ixH2O = 1 + ixT[-1] + np.arange(0, H2O.shape[1]).astype(np.int)
     ixO3 = 1 + ixH2O[-1] + np.arange(0, O3.shape[1]).astype(np.int)
     if transform:
-        T_, vars_T, wT = trans_T(T, P)
+        T_, vars_T, wT = trans_T(T, P, Tm=Tm)
         H2O_, vars_H2O, wH2O = trans_C(H2O, P, T)
         O3_, vars_O3, wO3 = trans_C(O3, P, T)
-        trans_vars_atmos = (vars_T, ixT, vars_H2O, ixH2O, vars_O3, ixO3)
+        trans_vars_atmos = (vars_T, ixT, vars_H2O, ixH2O, vars_O3, ixO3, Tm)
         wC = wH2O/wH2O.max() + wO3/wO3.max()
         wC /= wC.sum()
         wT = wT * wC
@@ -177,12 +180,12 @@ def atmos_to_features(P, T, H2O, O3, transform=False):
     return X, trans_vars_atmos, wX
 
 def features_to_atmos(X, trans_vars_atmos, P, T=None, cH2O=None, cO3=None):
-    vars_T, ixT, vars_H2O, ixH2O, vars_O3, ixO3 = trans_vars_atmos
+    vars_T, ixT, vars_H2O, ixH2O, vars_O3, ixO3, Tm = trans_vars_atmos
     T_ = X[:, ixT]
     H2O_ = X[:, ixH2O]
     O3_ = X[:, ixO3]
     if len(vars_T) > 0:
-        T_, ixT = itrans_T(T_, vars_T, T)
+        T_, ixT = itrans_T(T_, vars_T, T, Tm=Tm)
         print(f'T:   {sum(ixT):d} good out of {len(ixT):d} total')
     if len(vars_H2O) > 0:
         H2O_, ixH2O = itrans_C(H2O_, vars_H2O, P, T_, cH2O)
@@ -198,10 +201,10 @@ def features_to_atmos(X, trans_vars_atmos, P, T=None, cH2O=None, cO3=None):
 # Atmospheric generative model
 # ---------------------------------------------------------------------
 
-def atmos_generator(P, T, H2O, O3, n_pca=15, n_gmm=10, transform=True, weight=True, filt=True):
+def atmos_generator(P, T, H2O, O3, n_pca=15, n_gmm=20, transform=True, weight=True, filt=True):
 
     # Build features
-    X, trans_vars_atmos, wX = atmos_to_features(P, T, H2O, O3, transform=transform)
+    X, trans_vars_atmos, wX = atmos_to_features(P, T, H2O, O3, transform=transform, Tm=T.mean(axis=0))
     cH2O = mf2mol_cum(H2O, P, T)
     cO3 = mf2mol_cum(O3, P, T)
 
@@ -212,7 +215,7 @@ def atmos_generator(P, T, H2O, O3, n_pca=15, n_gmm=10, transform=True, weight=Tr
         generator, Xr, Xm = pca_gmm_gen_mdl(X, n_pca=n_pca, n_gmm=n_gmm, w=None)
 
     def atm_gen(n):
-        (Xr_n, X_n, ll) = generator(int(1.25 * n))  # generate more than required so we can throw some away
+        (Xr_n, X_n, ll) = generator(int(3 * n))  # generate more than required so we can throw some away
         T_n, H2O_n, O3_n, ix = features_to_atmos(X_n, trans_vars_atmos, P, T=T, cH2O=cH2O, cO3=cO3)
 
         # Filter out physically impossible or "unrealistic" atmospheric states
@@ -277,11 +280,32 @@ def plot_data_model(P, T, Tm, H2O, H2Om, O3, O3m, ii=0):
     fig.tight_layout()
     return fig
 
-def plot_gen_data(P, T, Tm, H2O, H2Om, O3, O3m, N=10, q=[5,50,95]):
+def plot_gen_data(P, T, Tm, H2O, H2Om, O3, O3m, N=100, q=[5,50,95]):
+
+    def mk_hst(x, xn, xl=None):
+        plt.figure()
+        (_, bins, _) = plt.hist(x, bins=30, density=True, alpha=0.67, label='Measured')
+        plt.hist(xn, bins=bins, density=True, alpha=0.67, label='Generated')
+        if xl is not None:
+            plt.xlabel(xl)
+        plt.legend()
+
+    mk_hst(T[:, 0], Tm[:, 0], xl='T [K]')
+    mk_hst(cH2O[:, -1], cH2Om[:, -1], xl='Total H2O [mol]')
+    mk_hst(1e6*cO3[:, -1], 1e6*cO3m[:, -1], xl='Total O3 [µmol]')
+    
+    plt.figure()
+    plt.scatter(T[:, 0], cH2O[:, -1],label='Measured', alpha=0.5)
+    plt.scatter(Tn[:, 0], cH2On[:, -1],label='Generated', alpha=0.5)
+    plt.xlabel('T_g [K]')
+    plt.ylabel('Total H2O [mol]')
+    plt.legend()
 
     def mk_plt(x, xn):
-        plt.plot(x[::N,:].T, z, '-b', alpha=0.25)
-        plt.plot(xn[::N,:].T, z, '-r', alpha=0.25)
+        ix = np.linspace(0, x.shape[0]-1, N).astype(np.int)
+        ixn = np.linspace(0, xn.shape[0]-1, N).astype(np.int)
+        plt.plot(x[ix,:].T, z, '-b', alpha=0.25)
+        plt.plot(xn[ixn,:].T, z, '-r', alpha=0.25)
         plt.plot(np.percentile(x, q, axis=0).T, z, '-', linewidth=2, c=(0, 0, 0.67, 0.75))
         plt.plot(np.percentile(xn, q, axis=0).T, z, '-', linewidth=2, c=(0.67, 0, 0, 0.75))
 
@@ -329,22 +353,78 @@ cO3 = mf2mol_cum(O3, P, T)
 # Test the approach
 # ---------------------------------------------------------------------
 
-np.random.seed(42)
-atm_gen, X, trans_vars_atmos, wX, Xr, Xm = atmos_generator(P, T, H2O, O3, n_pca=15, filt=True)
-Tm, H2Om, O3m, ix = features_to_atmos(Xm, trans_vars_atmos, P, T=T, cH2O=cH2O, cO3=cO3)
-(Tn, H2On, O3n, ll, Xrn, Xn, trans_vars_atmos) = atm_gen(2000)
+# np.random.seed(42)
+# n_pca=14
+# n_gmm=50
+# atm_gen, X, trans_vars_atmos, wX, Xr, Xm = atmos_generator(P, T, H2O, O3, n_pca=n_pca, n_gmm=n_gmm, filt=True)
+# Tm, H2Om, O3m, ix = features_to_atmos(Xm, trans_vars_atmos, P, T=T, cH2O=cH2O, cO3=cO3)
+# (Tn, H2On, O3n, ll, Xrn, Xn, trans_vars_atmos) = atm_gen(10000)
 
-cH2Om = mf2mol_cum(H2Om, P, Tm)
-cO3m = mf2mol_cum(O3m, P, Tm)
+# cH2Om = mf2mol_cum(H2Om, P, Tm)
+# cO3m = mf2mol_cum(O3m, P, Tm)
+# cH2On = mf2mol_cum(H2On, P, Tn)
+# cO3n = mf2mol_cum(O3n, P, Tn)
+
+# ix_err = np.argsort(np.sqrt(np.mean((X - Xm)**2, axis=1)))
+# ix50 = ix_err[int(0.50*len(ix_err))]
+# ix95 = ix_err[int(0.95*len(ix_err))]
+
+# plot_pca_components(Xr, Xrn, ii=0, jj=1)
+# plot_data_model(P, T, Tm, H2O, H2Om, O3, O3m, ii=ix50)
+# plot_data_model(P, T, Tm, H2O, H2Om, O3, O3m, ii=ix95)
+# plot_gen_data(P, T, Tn, cH2O, cH2On, cO3, cO3n, N=100)
+
+
+n_airmass = 3
+pdf=BayesianGaussianMixture(n_components=n_airmass, covariance_type='full', max_iter=25000)
+f = lambda x: (x - x.mean()) / x.std()
+features=np.vstack((f(T[:, 0]), f(cH2O[:, -1]), f(cO3[:, -1]))).T
+features=np.vstack((f(T[:, 0]), f(cH2O[:, -1]))).T
+pdf.fit(features)
+pred=pdf.predict(features)
+plt.figure()
+for ii in range(5):
+    ix = pred == ii
+    plt.scatter(T[ix, 0], cH2O[ix, -1])
+
+np.random.seed(42)
+n_pca = 12
+n_gmm = 15
+(Tn, H2On, O3n) = [], [], []
+for ii in range(n_airmass):
+    ix = pred == ii
+    atm_gen, X, trans_vars_atmos, wX, Xr, Xm = atmos_generator(P, T[ix,:], H2O[ix,:], O3[ix,:], n_pca=n_pca, n_gmm=n_gmm, filt=True)
+    (Tn_, H2On_, O3n_, ll, Xrn, Xn, trans_vars_atmos) = atm_gen(int(10 * sum(ix)))
+    Tm, H2Om, O3m, _ = features_to_atmos(Xm, trans_vars_atmos, P, T=T, cH2O=cH2O, cO3=cO3)
+    ix_err = np.argsort(np.sqrt(np.mean((X - Xm)**2, axis=1)))
+    ix90 = ix_err[int(0.90*len(ix_err))]
+    plot_pca_components(Xr, Xrn, ii=0, jj=1)
+    plot_data_model(P, T[ix,:], Tm, H2O[ix,:], H2Om, O3[ix,:], O3m, ii=ix90)
+    Tn.append(Tn_)
+    H2On.append(H2On_)
+    O3n.append(O3n_)
+
+Tn = np.concatenate(Tn)
+H2On = np.concatenate(H2On)
+O3n = np.concatenate(O3n)
 cH2On = mf2mol_cum(H2On, P, Tn)
 cO3n = mf2mol_cum(O3n, P, Tn)
 
-ix_err = np.argsort(np.sqrt(np.mean((X - Xm)**2, axis=1)))
-ix50 = ix_err[int(0.50*len(ix_err))]
-ix95 = ix_err[int(0.95*len(ix_err))]
+plot_gen_data(P, T, Tn, cH2O, cH2On, cO3, cO3n, N=100)
+
+# ---------------------------------------------------------------------
+# Generate new data
+# ---------------------------------------------------------------------
+
+N = T.shape[0]
+augFactor = 100
+(Tn, H2On, O3n, ll, Xrn, Xn, trans_vars_atmos) = atm_gen(N * augFactor)
+cH2On=mf2mol_cum(H2On, P, Tn)
+cO3n=mf2mol_cum(O3n, P, Tn)
 
 plot_pca_components(Xr, Xrn, ii=0, jj=1)
 plot_data_model(P, T, Tm, H2O, H2Om, O3, O3m, ii=ix50)
 plot_data_model(P, T, Tm, H2O, H2Om, O3, O3m, ii=ix95)
+plot_gen_data(P, T, Tn, cH2O, cH2On, cO3, cO3n, N=100)
 
-plot_gen_data(P, T, Tn, cH2O, cH2On, cO3, cO3n, N=10)
+np.savez('TIGR-Augmented.npz', z=z, P=P, T=T, H2O=H2O, O3=O3, Tn=Tn, H2On=H2On, O3n=O3n, n_pca=n_pca)
