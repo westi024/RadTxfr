@@ -334,13 +334,14 @@ atm_gen, X, trans_vars_atmos, wX, Xr, Xm = atmos_generator(P, T, H2O, O3, n_pca=
 Tm, H2Om, O3m, ix = features_to_atmos(Xm, trans_vars_atmos, P, T=T, cH2O=cH2O, cO3=cO3)
 (Tn, H2On, O3n, ll, Xrn, Xn, trans_vars_atmos) = atm_gen(2000)
 
-ix_err = np.argsort(np.sqrt(np.mean((X - Xm)**2, axis=1)))
-ix50 = ix_err[int(0.50*len(ix_err))]
-ix95 = ix_err[int(0.95*len(ix_err))]
 cH2Om = mf2mol_cum(H2Om, P, Tm)
 cO3m = mf2mol_cum(O3m, P, Tm)
 cH2On = mf2mol_cum(H2On, P, Tn)
 cO3n = mf2mol_cum(O3n, P, Tn)
+
+ix_err = np.argsort(np.sqrt(np.mean((X - Xm)**2, axis=1)))
+ix50 = ix_err[int(0.50*len(ix_err))]
+ix95 = ix_err[int(0.95*len(ix_err))]
 
 plot_pca_components(Xr, Xrn, ii=0, jj=1)
 plot_data_model(P, T, Tm, H2O, H2Om, O3, O3m, ii=ix50)
