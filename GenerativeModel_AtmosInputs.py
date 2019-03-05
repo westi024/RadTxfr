@@ -195,32 +195,6 @@ def features_to_atmos(X, trans_vars_atmos, P, T=None, cH2O=None, cO3=None):
     return T_, H2O_, O3_, ix
 
 # ---------------------------------------------------------------------
-# Load and pre-process atmospheric data
-# ---------------------------------------------------------------------
-
-# Atmospheric state parameters
-f = h5py.File("data/LWIR_TUD.h5", "r")
-z, T, P, H2O, O3 = tuple(map(lambda x: f[x][...], ['z', 'T', 'P', 'H2O', 'O3']))
-
-# Fix weird profiles
-H2O[H2O < 0] = 0
-O3[O3 < 0] = 0
-
-# Filter out super-saturated air
-RH_max = 98
-RH = mf2rh(P, T, H2O)
-ixBad = np.any(RH > RH_max, axis=1)
-print(f"Removed {np.sum(ixBad):d} profiles with one or more layers exceeding {RH_max:d}% RH")
-ix = ~ixBad
-T = T[ix,:]
-H2O = H2O[ix,:]
-O3 = O3[ix,:]
-
-# Cumulative concentrations
-cH2O = mf2mol_cum(H2O, P, T)
-cO3 = mf2mol_cum(O3, P, T)
-
-# ---------------------------------------------------------------------
 # Atmospheric generative model
 # ---------------------------------------------------------------------
 
@@ -324,6 +298,32 @@ def plot_gen_data(P, T, Tm, H2O, H2Om, O3, O3m, N=10, q=[5,50,95]):
     plt.xlabel('cO3 [µmol]')
     fig.tight_layout()
     return fig
+
+# ---------------------------------------------------------------------
+# Load and pre-process atmospheric data
+# ---------------------------------------------------------------------
+
+# Atmospheric state parameters
+f = h5py.File("data/LWIR_TUD.h5", "r")
+z, T, P, H2O, O3 = tuple(map(lambda x: f[x][...], ['z', 'T', 'P', 'H2O', 'O3']))
+
+# Fix weird profiles
+H2O[H2O < 0] = 0
+O3[O3 < 0] = 0
+
+# Filter out super-saturated air
+RH_max = 98
+RH = mf2rh(P, T, H2O)
+ixBad = np.any(RH > RH_max, axis=1)
+print(f"Removed {np.sum(ixBad):d} profiles with one or more layers exceeding {RH_max:d}% RH")
+ix = ~ixBad
+T = T[ix,:]
+H2O = H2O[ix,:]
+O3 = O3[ix,:]
+
+# Cumulative concentrations
+cH2O = mf2mol_cum(H2O, P, T)
+cO3 = mf2mol_cum(O3, P, T)
 
 # ---------------------------------------------------------------------
 # Test the approach
