@@ -235,14 +235,21 @@ def atmos_generator(P, T, H2O, O3, n_pca=15, n_gmm=20, transform=True, weight=Tr
 # Visualization functions
 # ---------------------------------------------------------------------
 
-def plot_pca_components(Xr, Xrn, ii=0, jj=1): 
-    fig = plt.figure() 
-    plt.plot(Xr[:, ii], Xr[:, jj], '.', label='Original')
-    plt.plot(Xrn[:, ii], Xrn[:, jj], '.', label='New')
+def plot_pca_components(Xr, Xrn, ii=0, jj=1):
+    fig = plt.figure()
+    plt.plot(Xrn[:, ii], Xrn[:, jj], '.', label='Generated', alpha=0.33)
+    plt.plot(Xr[:, ii], Xr[:, jj], '.', label='Measured')
+    plt.xlabel(f"PCA Component {ii:d}")
+    plt.ylabel(f"PCA Component {jj:d}")
     plt.legend()
     return fig
 
 def plot_data_model(P, T, Tm, H2O, H2Om, O3, O3m, ii=0):
+
+    cH2O = mf2mol_cum(H2O, P, T)
+    cO3 = mf2mol_cum(O3, P, T)
+    cH2Om = mf2mol_cum(H2Om, P, T)
+    cO3m = mf2mol_cum(O3m, P, T)
 
     fig = plt.figure()
     ax1 = plt.subplot(1, 3, 1)
@@ -284,20 +291,26 @@ def plot_gen_data(P, T, Tm, H2O, H2Om, O3, O3m, N=100, q=[5,50,95]):
 
     def mk_hst(x, xn, xl=None):
         plt.figure()
-        (_, bins, _) = plt.hist(x, bins=30, density=True, alpha=0.67, label='Measured')
-        plt.hist(xn, bins=bins, density=True, alpha=0.67, label='Generated')
+        (_, bins, _) = plt.hist(xn, bins=25, density=True, alpha=1, label='Generated')
+        plt.hist(x, bins=bins, density=True, alpha=0.33, label='Measured')
         if xl is not None:
             plt.xlabel(xl)
         plt.legend()
 
-    mk_hst(T[:, 0], Tm[:, 0], xl='T [K]')
+    cH2O = mf2mol_cum(H2O, P, T)
+    cO3 = mf2mol_cum(O3, P, T)
+    cH2Om = mf2mol_cum(H2Om, P, Tm)
+    cO3m = mf2mol_cum(O3m, P, Tm)
+
+    mk_hst(T[:, z<3].mean(axis=1), Tm[:, z<3].mean(axis=1), xl='T [K]')
     mk_hst(cH2O[:, -1], cH2Om[:, -1], xl='Total H2O [mol]')
     mk_hst(1e6*cO3[:, -1], 1e6*cO3m[:, -1], xl='Total O3 [µmol]')
-    
+
     plt.figure()
-    plt.scatter(T[:, 0], cH2O[:, -1],label='Measured', alpha=0.5)
-    plt.scatter(Tn[:, 0], cH2On[:, -1],label='Generated', alpha=0.5)
-    plt.xlabel('T_g [K]')
+    sz = plt.rcParams['lines.markersize']/2
+    plt.scatter(Tn[:, z<3].mean(axis=1), cH2On[:, -1], label='Generated', alpha=0.33, edgecolors=None, s=sz**2)
+    plt.scatter(T[:, z<3].mean(axis=1), cH2O[:, -1], label='Measured', alpha=0.67, edgecolors=None, s=sz**2)
+    plt.xlabel('Ground T [K]')
     plt.ylabel('Total H2O [mol]')
     plt.legend()
 
@@ -306,8 +319,8 @@ def plot_gen_data(P, T, Tm, H2O, H2Om, O3, O3m, N=100, q=[5,50,95]):
         ixn = np.linspace(0, xn.shape[0]-1, N).astype(np.int)
         plt.plot(x[ix,:].T, z, '-b', alpha=0.25)
         plt.plot(xn[ixn,:].T, z, '-r', alpha=0.25)
-        plt.plot(np.percentile(x, q, axis=0).T, z, '-', linewidth=2, c=(0, 0, 0.67, 0.75))
-        plt.plot(np.percentile(xn, q, axis=0).T, z, '-', linewidth=2, c=(0.67, 0, 0, 0.75))
+        plt.plot(np.percentile(x, q, axis=0).T, z, '-', linewidth=2.5, c=(0, 0, 0.67, 0.75))
+        plt.plot(np.percentile(xn, q, axis=0).T, z, '-', linewidth=2.5, c=(0.67, 0, 0, 0.75))
 
     fig = plt.figure()
     plt.subplot(1, 3, 1)
@@ -315,12 +328,26 @@ def plot_gen_data(P, T, Tm, H2O, H2Om, O3, O3m, N=100, q=[5,50,95]):
     plt.xlabel('T [K]')
     plt.ylabel('z [km]')
     plt.subplot(1, 3, 2)
-    mk_plt(H2O, H2Om)
-    plt.xlabel('cH2O [mol]')
+    mk_plt(100*H2O, 100*H2Om)
+    plt.xlabel('H2O [%]')
     plt.subplot(1, 3, 3)
     mk_plt(1e6*O3, 1e6*O3m)
+    plt.xlabel('O3 [ppm]')
+    fig.tight_layout()
+
+    fig = plt.figure()
+    plt.subplot(1, 3, 1)
+    mk_plt(T, Tn)
+    plt.xlabel('T [K]')
+    plt.ylabel('z [km]')
+    plt.subplot(1, 3, 2)
+    mk_plt(cH2O, cH2Om)
+    plt.xlabel('cH2O [mol]')
+    plt.subplot(1, 3, 3)
+    mk_plt(1e6*cO3, 1e6*cO3m)
     plt.xlabel('cO3 [µmol]')
     fig.tight_layout()
+
     return fig
 
 # ---------------------------------------------------------------------
@@ -336,7 +363,7 @@ H2O[H2O < 0] = 0
 O3[O3 < 0] = 0
 
 # Filter out super-saturated air
-RH_max = 98
+RH_max = 96
 RH = mf2rh(P, T, H2O)
 ixBad = np.any(RH > RH_max, axis=1)
 print(f"Removed {np.sum(ixBad):d} profiles with one or more layers exceeding {RH_max:d}% RH")
@@ -350,51 +377,33 @@ cH2O = mf2mol_cum(H2O, P, T)
 cO3 = mf2mol_cum(O3, P, T)
 
 # ---------------------------------------------------------------------
-# Test the approach
+# Generate new data
 # ---------------------------------------------------------------------
 
-# np.random.seed(42)
-# n_pca=14
-# n_gmm=50
-# atm_gen, X, trans_vars_atmos, wX, Xr, Xm = atmos_generator(P, T, H2O, O3, n_pca=n_pca, n_gmm=n_gmm, filt=True)
-# Tm, H2Om, O3m, ix = features_to_atmos(Xm, trans_vars_atmos, P, T=T, cH2O=cH2O, cO3=cO3)
-# (Tn, H2On, O3n, ll, Xrn, Xn, trans_vars_atmos) = atm_gen(10000)
-
-# cH2Om = mf2mol_cum(H2Om, P, Tm)
-# cO3m = mf2mol_cum(O3m, P, Tm)
-# cH2On = mf2mol_cum(H2On, P, Tn)
-# cO3n = mf2mol_cum(O3n, P, Tn)
-
-# ix_err = np.argsort(np.sqrt(np.mean((X - Xm)**2, axis=1)))
-# ix50 = ix_err[int(0.50*len(ix_err))]
-# ix95 = ix_err[int(0.95*len(ix_err))]
-
-# plot_pca_components(Xr, Xrn, ii=0, jj=1)
-# plot_data_model(P, T, Tm, H2O, H2Om, O3, O3m, ii=ix50)
-# plot_data_model(P, T, Tm, H2O, H2Om, O3, O3m, ii=ix95)
-# plot_gen_data(P, T, Tn, cH2O, cH2On, cO3, cO3n, N=100)
-
-
-n_airmass = 3
+# Group into different "air masses" based on near-surface temp and total water
+n_airmass = 5
 pdf=BayesianGaussianMixture(n_components=n_airmass, covariance_type='full', max_iter=25000)
 f = lambda x: (x - x.mean()) / x.std()
-features=np.vstack((f(T[:, 0]), f(cH2O[:, -1]), f(cO3[:, -1]))).T
-features=np.vstack((f(T[:, 0]), f(cH2O[:, -1]))).T
+features=np.vstack((f(T[:, z<3].mean(axis=1)), f(cH2O[:, -1]))).T
 pdf.fit(features)
-pred=pdf.predict(features)
+airmass_label=pdf.predict(features)
+n_airmass = len(np.unique(airmass_label))
 plt.figure()
-for ii in range(5):
-    ix = pred == ii
-    plt.scatter(T[ix, 0], cH2O[ix, -1])
+for ii in range(n_airmass):
+    ix = airmass_label == ii
+    plt.scatter((T[ix,:])[:, z < 3].mean(axis=1), cH2O[ix, -1], alpha=0.5)
+plt.xlabel('Mean Temperature (z < 3 km) [K]')
+plt.ylabel('Total H2O [mol]')
 
 np.random.seed(42)
-n_pca = 12
-n_gmm = 15
+n_pca = 15
+n_gmm = 10
+n_aug = 100
 (Tn, H2On, O3n) = [], [], []
 for ii in range(n_airmass):
-    ix = pred == ii
+    ix = airmass_label == ii
     atm_gen, X, trans_vars_atmos, wX, Xr, Xm = atmos_generator(P, T[ix,:], H2O[ix,:], O3[ix,:], n_pca=n_pca, n_gmm=n_gmm, filt=True)
-    (Tn_, H2On_, O3n_, ll, Xrn, Xn, trans_vars_atmos) = atm_gen(int(10 * sum(ix)))
+    (Tn_, H2On_, O3n_, ll, Xrn, Xn, trans_vars_atmos) = atm_gen(int(n_aug * sum(ix)))
     Tm, H2Om, O3m, _ = features_to_atmos(Xm, trans_vars_atmos, P, T=T, cH2O=cH2O, cO3=cO3)
     ix_err = np.argsort(np.sqrt(np.mean((X - Xm)**2, axis=1)))
     ix90 = ix_err[int(0.90*len(ix_err))]
@@ -410,21 +419,5 @@ O3n = np.concatenate(O3n)
 cH2On = mf2mol_cum(H2On, P, Tn)
 cO3n = mf2mol_cum(O3n, P, Tn)
 
-plot_gen_data(P, T, Tn, cH2O, cH2On, cO3, cO3n, N=100)
-
-# ---------------------------------------------------------------------
-# Generate new data
-# ---------------------------------------------------------------------
-
-N = T.shape[0]
-augFactor = 100
-(Tn, H2On, O3n, ll, Xrn, Xn, trans_vars_atmos) = atm_gen(N * augFactor)
-cH2On=mf2mol_cum(H2On, P, Tn)
-cO3n=mf2mol_cum(O3n, P, Tn)
-
-plot_pca_components(Xr, Xrn, ii=0, jj=1)
-plot_data_model(P, T, Tm, H2O, H2Om, O3, O3m, ii=ix50)
-plot_data_model(P, T, Tm, H2O, H2Om, O3, O3m, ii=ix95)
-plot_gen_data(P, T, Tn, cH2O, cH2On, cO3, cO3n, N=100)
-
-np.savez('TIGR-Augmented.npz', z=z, P=P, T=T, H2O=H2O, O3=O3, Tn=Tn, H2On=H2On, O3n=O3n, n_pca=n_pca)
+plot_gen_data(P, T, Tn, H2O, H2On, O3, O3n, N=250)
+np.savez('TIGR-Augmented.npz', z=z, P=P, T=T, H2O=H2O, O3=O3, Tn=Tn, H2On=H2On, O3n=O3n, n_pca=n_pca, n_gmm=n_gmm, airmass_label=airmass_label)
