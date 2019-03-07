@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import atmos
 
 from sklearn.decomposition import PCA
-from sklearn.mixture import GaussianMixture, BayesianGaussianMixture
+from sklearn.mixture import BayesianGaussianMixture
 
 # ---------------------------------------------------------------------
 # Functions for building PCA and GMM models
@@ -75,6 +75,13 @@ def mol_cum2mf(c, P, T):
     rho /= R
     x /= rho
     return x
+
+def RH_filter(P, T, H2O, RH_max=96):
+    RH = mf2rh(P, T, H2O)
+    ixBad = np.any(RH > RH_max, axis=1)
+    print(f"Removed {int(np.sum(ixBad)):d} profiles with one or more layers exceeding {RH_max:0.1f}% RH")
+    ix = ~ixBad
+    return ix
 
 # ---------------------------------------------------------------------
 # Functions to map atmospheric variables to feature space
@@ -202,7 +209,7 @@ def features_to_atmos(X, trans_vars_atmos, P, T=None, cH2O=None, cO3=None):
 # Atmospheric generative model
 # ---------------------------------------------------------------------
 
-def atmos_generator(P, T, H2O, O3, n_pca=15, n_gmm=20, transform=True, weight=True, filt=True):
+def atmos_generator(P, T, H2O, O3, n_pca=15, n_gmm=20, transform=True, weight=True, filt=True, RH_max=96.0):
 
     # Build features
     X, trans_vars_atmos, wX = atmos_to_features(P, T, H2O, O3, transform=transform, Tm=T.mean(axis=0))
@@ -216,12 +223,14 @@ def atmos_generator(P, T, H2O, O3, n_pca=15, n_gmm=20, transform=True, weight=Tr
         generator, Xr, Xm = pca_gmm_gen_mdl(X, n_pca=n_pca, n_gmm=n_gmm, w=None)
 
     def atm_gen(n):
-        (Xr_n, X_n, ll) = generator(int(3 * n))  # generate more than required so we can throw some away
+        (Xr_n, X_n, ll) = generator(int(5 * n))  # generate more than required so we can throw some away
         T_n, H2O_n, O3_n, ix = features_to_atmos(X_n, trans_vars_atmos, P, T=T, cH2O=cH2O, cO3=cO3)
-        RH = mf2rh(P, T_n, H2O_n)
+        ix_RH = RH_filter(P, T_n, H2O_n, RH_max=RH_max)
+        ix = ix & ix_RH
 
         # Filter out physically impossible or "unrealistic" atmospheric states
         if filt:
+            print(f"Total samples meeting all physical requirements: {int(np.sum(ix)):d} out of {int(len(ix)):d}")
             T_n = T_n[ix,:]
             H2O_n = H2O_n[ix,:]
             O3_n = O3_n[ix,:]
@@ -365,11 +374,7 @@ H2O[H2O < 0] = 0
 O3[O3 < 0] = 0
 
 # Filter out super-saturated air
-RH_max = 96
-RH = mf2rh(P, T, H2O)
-ixBad = np.any(RH > RH_max, axis=1)
-print(f"Removed {np.sum(ixBad):d} profiles with one or more layers exceeding {RH_max:d}% RH")
-ix = ~ixBad
+ix = RH_filter(P, T, H2O)
 T = T[ix,:]
 H2O = H2O[ix,:]
 O3 = O3[ix,:]
@@ -414,12 +419,12 @@ def airmass_labels(z, P, T, H2O, O3, n_airmass=5, labels=None):
     return labels
 
 def gen_samples_per_airmass(z, P, T, H2O, O3, labels, n_pca=15, n_gmm=10, n_aug=100):
-    (Tn, H2On, O3n, labels_n) = [], [], [], []
+    (Tn, H2On, O3n, labels_n, ll_n) = [], [], [], [], []
     for ii in np.unique(labels):
         ix = labels == ii
         n_samples = int(n_aug * sum(ix))
         atm_gen, X, trans_vars_atmos, wX, Xr, Xm = atmos_generator(P, T[ix,:], H2O[ix,:], O3[ix,:], n_pca=n_pca, n_gmm=n_gmm, filt=True)
-        (Tn_, H2On_, O3n_, ll, Xrn, Xn, trans_vars_atmos) = atm_gen(n_samples)
+        (Tn_, H2On_, O3n_, ll_, Xrn, Xn, trans_vars_atmos) = atm_gen(n_samples)
         Tm, H2Om, O3m, _ = features_to_atmos(Xm, trans_vars_atmos, P, T=T, cH2O=cH2O, cO3=cO3)
         ix_err = np.argsort(np.sqrt(np.mean((X - Xm)**2, axis=1)))
         ix90 = ix_err[int(0.90*len(ix_err))]
@@ -429,17 +434,19 @@ def gen_samples_per_airmass(z, P, T, H2O, O3, labels, n_pca=15, n_gmm=10, n_aug=
         H2On.append(H2On_)
         O3n.append(O3n_)
         labels_n.append(ii * np.ones(n_samples))
+        ll_n.append(ll_)
     Tn = np.concatenate(Tn)
     H2On = np.concatenate(H2On)
     O3n = np.concatenate(O3n)
     labels_n = np.concatenate(labels_n)
-    return Tn, H2On, O3n, labels_n
+    ll_n = np.concatenate(ll_n)
+    return Tn, H2On, O3n, labels_n, ll_n
 
 n_pca = 15
 n_gmm = 10
 n_aug = 100
 labels = airmass_labels(z,P,T,H2O,O3)
-Tn, H2On, O3n, labels_n = gen_samples_per_airmass(z, P, T, H2O, O3, labels, n_pca=n_pca, n_gmm=n_gmm, n_aug=n_aug)
+Tn, H2On, O3n, labels_n, ll_n = gen_samples_per_airmass(z, P, T, H2O, O3, labels, n_pca=n_pca, n_gmm=n_gmm, n_aug=n_aug)
 plot_gen_data(z, P, T, Tn, H2O, H2On, O3, O3n, N=250)
 
-np.savez('TIGR-Augmented.npz', z=z, P=P, T=T, H2O=H2O, O3=O3, Tn=Tn, H2On=H2On, O3n=O3n, n_pca=n_pca, n_gmm=n_gmm, airmass_label=labels, airmass_label_n=labels_n)
+np.savez('TIGR-Augmented.npz', z=z, P=P, T=T, H2O=H2O, O3=O3, Tn=Tn, H2On=H2On, O3n=O3n, n_pca=n_pca, n_gmm=n_gmm, airmass_label=labels, airmass_label_n=labels_n, log_likelihood=ll_n)
