@@ -1,3 +1,5 @@
+# TODO: Add comments
+
 # ---------------------------------------------------------------------
 # Import required packages
 # ---------------------------------------------------------------------
@@ -12,7 +14,6 @@ from sklearn.mixture import GaussianMixture, BayesianGaussianMixture
 # ---------------------------------------------------------------------
 # Functions for building PCA and GMM models
 # ---------------------------------------------------------------------
-
 def pca_mdl(X, n_components=20, w=None):
     pca = PCA(n_components=n_components, whiten=True)
     if w is None:
@@ -217,6 +218,7 @@ def atmos_generator(P, T, H2O, O3, n_pca=15, n_gmm=20, transform=True, weight=Tr
     def atm_gen(n):
         (Xr_n, X_n, ll) = generator(int(3 * n))  # generate more than required so we can throw some away
         T_n, H2O_n, O3_n, ix = features_to_atmos(X_n, trans_vars_atmos, P, T=T, cH2O=cH2O, cO3=cO3)
+        RH = mf2rh(P, T_n, H2O_n)
 
         # Filter out physically impossible or "unrealistic" atmospheric states
         if filt:
@@ -244,7 +246,7 @@ def plot_pca_components(Xr, Xrn, ii=0, jj=1):
     plt.legend()
     return fig
 
-def plot_data_model(P, T, Tm, H2O, H2Om, O3, O3m, ii=0):
+def plot_data_model(z, P, T, Tm, H2O, H2Om, O3, O3m, ii=0):
 
     cH2O = mf2mol_cum(H2O, P, T)
     cO3 = mf2mol_cum(O3, P, T)
@@ -287,7 +289,7 @@ def plot_data_model(P, T, Tm, H2O, H2Om, O3, O3m, ii=0):
     fig.tight_layout()
     return fig
 
-def plot_gen_data(P, T, Tm, H2O, H2Om, O3, O3m, N=100, q=[5,50,95]):
+def plot_gen_data(z, P, T, Tm, H2O, H2Om, O3, O3m, N=100, q=[5,50,95]):
 
     def mk_hst(x, xn, xl=None):
         plt.figure()
@@ -308,7 +310,7 @@ def plot_gen_data(P, T, Tm, H2O, H2Om, O3, O3m, N=100, q=[5,50,95]):
 
     plt.figure()
     sz = plt.rcParams['lines.markersize']/2
-    plt.scatter(Tn[:, z<3].mean(axis=1), cH2On[:, -1], label='Generated', alpha=0.33, edgecolors=None, s=sz**2)
+    plt.scatter(Tn[:, z<3].mean(axis=1), cH2Om[:, -1], label='Generated', alpha=0.33, edgecolors=None, s=sz**2)
     plt.scatter(T[:, z<3].mean(axis=1), cH2O[:, -1], label='Measured', alpha=0.67, edgecolors=None, s=sz**2)
     plt.xlabel('Ground T [K]')
     plt.ylabel('Total H2O [mol]')
@@ -381,43 +383,63 @@ cO3 = mf2mol_cum(O3, P, T)
 # ---------------------------------------------------------------------
 
 # Group into different "air masses" based on near-surface temp and total water
-n_airmass = 5
-pdf=BayesianGaussianMixture(n_components=n_airmass, covariance_type='full', max_iter=25000)
-f = lambda x: (x - x.mean()) / x.std()
-features=np.vstack((f(T[:, z<3].mean(axis=1)), f(cH2O[:, -1]))).T
-pdf.fit(features)
-airmass_label=pdf.predict(features)
-n_airmass = len(np.unique(airmass_label))
-plt.figure()
-for ii in range(n_airmass):
-    ix = airmass_label == ii
-    plt.scatter((T[ix,:])[:, z < 3].mean(axis=1), cH2O[ix, -1], alpha=0.5)
-plt.xlabel('Mean Temperature (z < 3 km) [K]')
-plt.ylabel('Total H2O [mol]')
+def airmass_labels(z, P, T, H2O, O3, n_airmass=5, labels=None):
+    cH2O = mf2mol_cum(H2O, P, T)
+    cO3 = mf2mol_cum(O3, P, T)
+    T_surf = T[:,z<3].mean(axis=1)
+    T_grad = np.diff(T[:,z<6],axis=1).mean(axis=1)
+    H2O_tot = cH2O[:,-1]
+    O3_tot = cO3[:,-1]
+    f = lambda x: (x - x.mean()) / x.std()
+    features=np.vstack((f(T_surf), f(T_grad), f(H2O_tot), f(O3_tot))).T
+    if labels is None:
+        pdf=BayesianGaussianMixture(n_components=n_airmass, covariance_type='full', max_iter=25000)
+        pdf.fit(features)
+        labels = pdf.predict(features)
+    plt.figure()
+    for ii in range(n_airmass):
+        ix = labels == ii
+        plt.subplot(1,3,1)
+        plt.plot(T_surf[ix], H2O_tot[ix],'.')
+        plt.xlabel('Mean T (z<3km) [K]')
+        plt.ylabel('Total H2O [mol]')
+        plt.subplot(1,3,2)
+        plt.plot(T_surf[ix], 1e6*O3_tot[ix],'.')
+        plt.xlabel('Mean T (z<3km) [K]')
+        plt.ylabel('Total O3 [µmol]')
+        plt.subplot(1,3,3)
+        plt.plot(H2O_tot[ix], 1e6*O3_tot[ix],'.')
+        plt.xlabel('Total H2O [mol]')
+        plt.ylabel('Total O3 [µmol]')
+    return labels
 
-np.random.seed(42)
+def gen_samples_per_airmass(z, P, T, H2O, O3, labels, n_pca=15, n_gmm=10, n_aug=100):
+    (Tn, H2On, O3n, labels_n) = [], [], [], []
+    for ii in np.unique(labels):
+        ix = labels == ii
+        n_samples = int(n_aug * sum(ix))
+        atm_gen, X, trans_vars_atmos, wX, Xr, Xm = atmos_generator(P, T[ix,:], H2O[ix,:], O3[ix,:], n_pca=n_pca, n_gmm=n_gmm, filt=True)
+        (Tn_, H2On_, O3n_, ll, Xrn, Xn, trans_vars_atmos) = atm_gen(n_samples)
+        Tm, H2Om, O3m, _ = features_to_atmos(Xm, trans_vars_atmos, P, T=T, cH2O=cH2O, cO3=cO3)
+        ix_err = np.argsort(np.sqrt(np.mean((X - Xm)**2, axis=1)))
+        ix90 = ix_err[int(0.90*len(ix_err))]
+        plot_pca_components(Xr, Xrn, ii=0, jj=1)
+        plot_data_model(z, P, T[ix,:], Tm, H2O[ix,:], H2Om, O3[ix,:], O3m, ii=ix90)
+        Tn.append(Tn_)
+        H2On.append(H2On_)
+        O3n.append(O3n_)
+        labels_n.append(ii * np.ones(n_samples))
+    Tn = np.concatenate(Tn)
+    H2On = np.concatenate(H2On)
+    O3n = np.concatenate(O3n)
+    labels_n = np.concatenate(labels_n)
+    return Tn, H2On, O3n, labels_n
+
 n_pca = 15
 n_gmm = 10
 n_aug = 100
-(Tn, H2On, O3n) = [], [], []
-for ii in range(n_airmass):
-    ix = airmass_label == ii
-    atm_gen, X, trans_vars_atmos, wX, Xr, Xm = atmos_generator(P, T[ix,:], H2O[ix,:], O3[ix,:], n_pca=n_pca, n_gmm=n_gmm, filt=True)
-    (Tn_, H2On_, O3n_, ll, Xrn, Xn, trans_vars_atmos) = atm_gen(int(n_aug * sum(ix)))
-    Tm, H2Om, O3m, _ = features_to_atmos(Xm, trans_vars_atmos, P, T=T, cH2O=cH2O, cO3=cO3)
-    ix_err = np.argsort(np.sqrt(np.mean((X - Xm)**2, axis=1)))
-    ix90 = ix_err[int(0.90*len(ix_err))]
-    plot_pca_components(Xr, Xrn, ii=0, jj=1)
-    plot_data_model(P, T[ix,:], Tm, H2O[ix,:], H2Om, O3[ix,:], O3m, ii=ix90)
-    Tn.append(Tn_)
-    H2On.append(H2On_)
-    O3n.append(O3n_)
+labels = airmass_labels(z,P,T,H2O,O3)
+Tn, H2On, O3n, labels_n = gen_samples_per_airmass(z, P, T, H2O, O3, labels, n_pca=n_pca, n_gmm=n_gmm, n_aug=n_aug)
+plot_gen_data(z, P, T, Tn, H2O, H2On, O3, O3n, N=250)
 
-Tn = np.concatenate(Tn)
-H2On = np.concatenate(H2On)
-O3n = np.concatenate(O3n)
-cH2On = mf2mol_cum(H2On, P, Tn)
-cO3n = mf2mol_cum(O3n, P, Tn)
-
-plot_gen_data(P, T, Tn, H2O, H2On, O3, O3n, N=250)
-np.savez('TIGR-Augmented.npz', z=z, P=P, T=T, H2O=H2O, O3=O3, Tn=Tn, H2On=H2On, O3n=O3n, n_pca=n_pca, n_gmm=n_gmm, airmass_label=airmass_label)
+np.savez('TIGR-Augmented.npz', z=z, P=P, T=T, H2O=H2O, O3=O3, Tn=Tn, H2On=H2On, O3n=O3n, n_pca=n_pca, n_gmm=n_gmm, airmass_label=labels, airmass_label_n=labels_n)
