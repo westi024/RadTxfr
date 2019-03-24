@@ -375,7 +375,7 @@ def compute_OD(Xmin_in, Xmax_in, opts=options, **kwargs):
     of the layer is given by T = exp(-OD).
 
     Parameters
-    ----------
+    __________
     Xmin: float
       lower spectral bound for OD computation, wavenumbers [cm^{-1}]
     Xmax: float
@@ -482,7 +482,7 @@ def write_tape5(fname="TAPE5", opts=options, **kwargs):
     Write an LBLRTM TAPE5 file for an optical depth calculation.
 
     Parameters
-    ----------
+    __________
     fname: string, optional, {"TAPE5"}
       name of file to write to
     opts: dictionary, optional
@@ -707,7 +707,7 @@ def planckian(X_in, T_in, wavelength=False):
     be `(X.size, *T.shape)`.
 
     Parameters
-    ----------
+    __________
     X : array_like (N,)
       spectral axis, wavenumbers [1/cm], 1D array
     T : array_like
@@ -716,7 +716,7 @@ def planckian(X_in, T_in, wavelength=False):
       if true, interprets spectral input `X` as wavelength [micron, µm]
 
     Returns
-    -------
+    _______
     L : array_like
       spectral radiance in [µW/(cm^2·sr·cm^-1)], or if wavelength=True,
       spectral radiance in [µW/(cm^2·sr·µm)] (microflick, µF)
@@ -765,7 +765,7 @@ def brightnessTemperature(X_in, L_in, wavelength=False, bad_value=np.nan, spectr
     wavenumber X. The shape of output T will be ``(X.size, *L.shape)``.
 
     Parameters
-    ----------
+    __________
     X : array_like (N,)
       spectral axis, wavenumbers [1/cm], 1D array
     L : array_like
@@ -778,7 +778,7 @@ def brightnessTemperature(X_in, L_in, wavelength=False, bad_value=np.nan, spectr
       computed. Default is np.nan.
 
     Returns
-    -------
+    _______
     T : numpy array
       brightness temperature in [K]
 
@@ -847,7 +847,7 @@ def BT2L(X_in, T_in, wavelength=False, bad_value=np.nan, spectral_dim=0):
     wavenumber X. The shape of output T will be ``(X.size, *L.shape)``.
 
     Parameters
-    ----------
+    __________
     X : array_like (N,)
       spectral axis, wavenumbers [1/cm], 1D array
     T : array_like
@@ -859,7 +859,7 @@ def BT2L(X_in, T_in, wavelength=False, bad_value=np.nan, spectral_dim=0):
       computed. Default is np.nan.
 
     Returns
-    -------
+    _______
     L : numpy array
       spectral radiance in [µW/(cm^2 sr cm^{-1})] or [µW/(cm^2 sr µm)]
 
@@ -979,14 +979,14 @@ def ILS_MAKO(X, Y, resFactor=None, returnX=True, fwhm_sf=1.0, shift=0.0, scale=1
     Apply MAKO instrument line shape (ILS) to high-resolution spectrum.
 
     Parameters
-    ----------
+    __________
     X : array_like (nX,)
         spectral axis in wavenumbers [1/cm], 1D array of length `nX`
     Y : array_like (nX,) or (nX, nS)
         high-resolution spectrum or spectral array to convolve with ILS
     
     Returns
-    -------
+    _______
     X_out : array_like (128,) or (128*resFactor, )
         output spectral axis in wavenumbers
     Y_out : array_like (128, nS) or (128*resFactor, nS)
