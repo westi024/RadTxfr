@@ -1,5 +1,6 @@
 """
-AFIT/CTISR radiative transfer module.
+AFIT/CTISR radiative transfer module
+------------------------------------
 
 Code for generating the Planckian distribution, brightness temperature, and
 radiative transfer calculations using LBLRTM.
@@ -12,39 +13,40 @@ Wright-Patterson AFB, Ohio
 Kevin.Gross@afit.edu
 grosskc.afit@gmail.com
 (937) 255-3636 x4558
-Version 0.5.5 -- 19-Oct-2018
+Version 0.5.7 -- 24-Mar-2019
 
 Version History
 ---------------
-V 0.1.0 05-Jun-2017: Initial code.
-V 0.2.0 13-Feb-2018: Added comments.
-V 0.3.0 28-Feb-2018: Convert python numeric inputs to numpy arrays. Fixed
+* 0.1.0 05-Jun-2017: Initial code.
+* 0.2.0 13-Feb-2018: Added comments.
+* 0.3.0 28-Feb-2018: Convert python numeric inputs to numpy arrays. Fixed
   comments to pass muster with the linter. Ensured 1D vectors are really 1D.
   Simplified array reshaping. Changed convention to spectral axis as the *first*
   dimension. Calculations now performed in SI units. Simplified units conversion.
-V 0.4.0 28-Feb-2018: Fixed regression for scalar temperature inputs. Added
+* 0.4.0 28-Feb-2018: Fixed regression for scalar temperature inputs. Added
   make_array convenience function.
-V 0.4.1 02-Mar-2018: Updated comments. Removed brackets around T when ensuring T
+* 0.4.1 02-Mar-2018: Updated comments. Removed brackets around T when ensuring T
   a NumPy array. Made plotting function "private".
-V 0.4.2 19-Mar-2018: Minor updates to comments and print-out formatting.
-V 0.5.0 25-Apr-2018: Major update - added ability to compute transmittance and
+* 0.4.2 19-Mar-2018: Minor updates to comments and print-out formatting.
+* 0.5.0 25-Apr-2018: Major update - added ability to compute transmittance and
   upwelling & downwelling radiance (TUD) using LBLRTM.
-V 0.5.1 07-Jun-2018: Added compute_LWIR_apparent_radiance and added option to
+* 0.5.1 07-Jun-2018: Added compute_LWIR_apparent_radiance and added option to
   specify output value for brightnessTemperature when an error is encountered.
   Added Altitude option for compute_TUD so that T & U can be computed at multiple
   sensor altitudes for a single atmospheric state. Added option to return surface-
   leaving radiance in compute_LWIR_apparent_radiance. Updated some docstrings.
-V 0.5.2 06-Sep-2018: Added BT2L (brightness temperature to radiance) and added
+* 0.5.2 06-Sep-2018: Added BT2L (brightness temperature to radiance) and added
   option to return OD instead of T in computeTUD
-V 0.5.3 27-Sep-2018: Added smooth, reduce resolution, and ILS_MAKO functions
-V 0.5.4 15-Oct-2018: Removed for-loop in ILS_MAKO; added ability to increase
+* 0.5.3 27-Sep-2018: Added smooth, reduce resolution, and ILS_MAKO functions
+* 0.5.4 15-Oct-2018: Removed for-loop in ILS_MAKO; added ability to increase
   resolution for MAKO-like instrument; improved documentation of ILS_MAKO
-V 0.5.5 19-Oct-2018: Added ability for ILS_MAKO to return only Y_out
-V 0.5.6 04-Dec-2018: Fixed bug with brightness temperature computation when only
+* 0.5.5 19-Oct-2018: Added ability for ILS_MAKO to return only Y_out
+* 0.5.6 04-Dec-2018: Fixed bug with brightness temperature computation when only
   a single spectral location is given. Fixed ILS_MAKO FWHM estimation.
+* 0.5.7 24-Mar-2019: Code reformatting. No code modification.
 
 TODO
-____
+----
 * Add absorption cross-section database handling
 * Improve testing
 * Make a package with subfolders
