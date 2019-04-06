@@ -6,6 +6,7 @@
 # jupyter:
 #   jupytext:
 #     cmds:
+#       html: build_pandoc_html.sh Generate_ASTER_emissivity_DB.md
 #       init: jupytext --set-formats py:percent,md,ipynb Generate_ASTER_emissivity_DB.ipynb
 #       update: jupytext --sync --pipe black --to py:percent Generate_ASTER_emissivity_DB.ipynb
 #     formats: py:percent,md,ipynb
@@ -118,7 +119,6 @@ emis[emis > 1] = 1.0
 # %% [markdown]
 # Export labels to a `csv` file and data to both `hdf5` and Numpy `npz` files.
 # %%
-
 # Create CSV mapping ASTER material IDs to material descriptions
 with open("data/emissivity_ASTER_2.0_LWIR.csv", "w", newline="") as csvfile:
     fieldnames = ["IDX", "Description"]
