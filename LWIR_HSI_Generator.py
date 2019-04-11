@@ -2,7 +2,7 @@
 # ---
 # title: LWIR HSI data generator
 # author: Kevin Gross
-# date: 06-Apr-2019
+# date: 11-Apr-2019
 #
 # jupyter:
 #   jupytext:
